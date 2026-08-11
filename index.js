@@ -60,12 +60,14 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName('sesja')
-        .setDescription('Zarządzanie stanem sesji RP')
-        .addStringOption(opt => opt.setName('akcja').setDescription('Wybierz akcję').setRequired(true).addChoices(
-            { name: 'Start', value: 'start' },
-            { name: 'Koniec', value: 'stop' }
-        ))
+        .setDescription('Wysyła panel sterowania sesją z przyciskami (Start, Koniec, Przypomnij, Zaplanuj)')
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
+
+    new SlashCommandBuilder()
+        .setName('szukam-rp')
+        .setDescription('Wysyła ogłoszenie, że szukasz osób do odgrywania Roleplay')
+        .addStringOption(opt => opt.setName('opis').setDescription('Opis akcji / z kim chcesz zagrać RP').setRequired(true))
+        .addStringOption(opt => opt.setName('miejsce').setDescription('Miejsce akcji RP').setRequired(false)),
 
     new SlashCommandBuilder()
         .setName('ticket-panel')
@@ -160,9 +162,9 @@ function buildSessionEmbedAndButtons() {
         .setTitle('🎮 SESJA ROLEPLAY')
         .setColor(sessionData.active ? 'Green' : 'Orange')
         .addFields(
-            { name: 'Status', value: sessionData.active ? '🟢 TRWA' : '⏳ ZAPOWIEDZIANA', inline: true },
-            { name: 'Prowadzący', value: `<@${sessionData.host}>`, inline: true },
-            { name: 'Godzina', value: sessionData.time, inline: true },
+            { name: 'Status', value: sessionData.active ? '🟢 TRWA' : '⏳ ZAPOWIEDZIANA / WSTRZYMANA', inline: true },
+            { name: 'Prowadzący', value: sessionData.host ? `<@${sessionData.host}>` : 'Brak', inline: true },
+            { name: 'Godzina', value: sessionData.time || 'Nieustalona', inline: true },
             { name: 'Zapisani Gracze', value: sessionData.members.size > 0 ? Array.from(sessionData.members).map(id => `<@${id}>`).join(', ') : 'Brak zapisanych osób' }
         )
         .setTimestamp();
@@ -186,16 +188,31 @@ client.on('interactionCreate', async (interaction) => {
                 .setTitle('📜 Lista Komend Bota')
                 .setColor('Blue')
                 .addFields(
-                    { name: '🎮 Sesje RP', value: '`/zapowiedz-sesji` - Ogłoszenie sesji\n`/sesja [start/stop]` - Zarządzanie stanem sesji' },
-                    { name: '🎫 Ticket System', value: '`/ticket-panel` - Tworzenie panelu zgłoszeń z menu wyboru' },
-                    { name: '🛡️ Moderacja & Administracja', value: '`/ban` - Banowanie graczy\n`/warn` - Daj ostrzeżenie\n`/warny` - Sprawdź ostrzeżenia\n`/blacklist [adm/bot/user] [add/remove]` - Czarna lista\n`/panel-adm` - Panel zarządzania' },
-                    { name: '📢 Wezwania', value: '`/wezwanie-rzadowy` - Wezwanie na kanał rządowy\n`/wezwanie-biuro` - Wezwanie do Biura Zarządu' },
-                    { name: '📱 Social Media RP', value: '`/twitter` - Post na Twitterze\n`/darkweb` - Anonimowy wpis\n`/instagram` - Post na Instagramie' },
-                    { name: '🚨 Systemy Bezpieczeństwa', value: '`/alert-rcb` - Wysyła alert i zmienia nazwę kanału alarmowego' }
+                    { name: '🎮 Zarządzanie Sesją RP', value: '`/zapowiedz-sesji` - Zapisy i zapowiedź sesji\n`/sesja` - Panel z przyciskami (Start, Koniec, Przypomnij, Zaplanuj)' },
+                    { name: '📢 Ogłoszenia RP', value: '`/szukam-rp` - Ogłoszenie, że szukasz chętnych do wspólnego odgrywania RP' },
+                    { name: '🎫 Ticket System', value: '`/ticket-panel` - Panel zgłoszeń z podziałem m.in. na Do Zarządu' },
+                    { name: '🛡️ Moderacja & Administracja', value: '`/ban` - Banowanie graczy\n`/warn` - Ostrzeżenia\n`/warny` - Sprawdzanie ostrzeżeń\n`/blacklist` - Czarna lista\n`/panel-adm` - Panel zarządzania' },
+                    { name: '📢 Wezwania', value: '`/wezwanie-rzadowy` - Wezwanie na rządowy\n`/wezwanie-biuro` - Wezwanie do Biura Zarządu' },
+                    { name: '📱 Social Media RP', value: '`/twitter` - Twitter\n`/darkweb` - Darkweb\n`/instagram` - Instagram' },
+                    { name: '🚨 Systemy Bezpieczeństwa', value: '`/alert-rcb` - Wysyła alert i zmienia kod na kanale' }
                 )
                 .setTimestamp();
 
             await interaction.reply({ embeds: [embed], ephemeral: true });
+        }
+
+        if (commandName === 'szukam-rp') {
+            const desc = interaction.options.getString('opis');
+            const location = interaction.options.getString('miejsce') || 'Nieokreślone';
+
+            const embed = new EmbedBuilder()
+                .setTitle('🎭 OGŁOSZENIE RP - CHĘTNI DO GRY')
+                .setDescription(`**Szukający:** <@${interaction.user.id}>\n\n**Opis / Pomysł na RP:**\n${desc}\n\n**Miejsce:** ${location}`)
+                .setColor('Purple')
+                .setFooter({ text: 'Odpisz tej osobie na PW lub na kanale, jeśli chcesz zagrać!' })
+                .setTimestamp();
+
+            await interaction.reply({ content: '@everyone Szukamy chętnych do Roleplay!', embeds: [embed] });
         }
 
         if (commandName === 'zapowiedz-sesji') {
@@ -213,17 +230,21 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.reply({ content: `📣 **ZAPOWIEDŹ SESJI RP** ${pingText}`, ...sessionContent });
         }
 
+        // NOWY PANEL CONTROL PANEL /SESJA Z PRZYCISKAMI
         if (commandName === 'sesja') {
-            const action = interaction.options.getString('akcja');
-            if (action === 'start') {
-                sessionData.active = true;
-                const embed = new EmbedBuilder().setTitle('🚀 SESJA RP ZOSTAŁA URUCHOMIONA!').setDescription(`Prowadzący: <@${interaction.user.id}>\nMożna wchodzić na serwer!`).setColor('Green').setTimestamp();
-                await interaction.reply({ embeds: [embed] });
-            } else if (action === 'stop') {
-                sessionData.active = false;
-                const embed = new EmbedBuilder().setTitle('🛑 SESJA RP ZOSTAŁA ZAKOŃCZONA!').setDescription('Dziękujemy wszystkim za udział.').setColor('Red').setTimestamp();
-                await interaction.reply({ embeds: [embed] });
-            }
+            const embed = new EmbedBuilder()
+                .setTitle('⚙️ Panel Zarządzania Sesją RP')
+                .setDescription('Wybierz akcję poniżej, aby zarządzać stanem sesji RP:')
+                .setColor('Blurple');
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('btn_sesja_start').setLabel('Start').setStyle(ButtonStyle.Success).setEmoji('🟢'),
+                new ButtonBuilder().setCustomId('btn_sesja_koniec').setLabel('Koniec').setStyle(ButtonStyle.Danger).setEmoji('🔴'),
+                new ButtonBuilder().setCustomId('btn_sesja_przypomnij').setLabel('Przypomnij').setStyle(ButtonStyle.Primary).setEmoji('🔔'),
+                new ButtonBuilder().setCustomId('btn_sesja_zaplanuj').setLabel('Zaplanuj').setStyle(ButtonStyle.Secondary).setEmoji('📅')
+            );
+
+            await interaction.reply({ embeds: [embed], components: [row] });
         }
 
         // PANEL TICKETÓW
@@ -235,7 +256,7 @@ client.on('interactionCreate', async (interaction) => {
 
             const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId('ticket_select')
-                .setPlaceholder('Pytanie do administracji')
+                .setPlaceholder('Wybierz opcję zgłoszenia...')
                 .addOptions([
                     { label: 'Pytanie do administracji', value: 'pytanie_adm', emoji: '❓' },
                     { label: 'Do Zarządu', value: 'do_zarzadu', emoji: '👑' },
@@ -379,7 +400,6 @@ client.on('interactionCreate', async (interaction) => {
             let pingRoles = [];
             let typeName = '';
 
-            // Rozpoznawanie wybranej kategoria zgłoszenia
             if (selected === 'pytanie_adm') {
                 pingRoles = [PING_ADM];
                 typeName = 'Pytanie do Administracji';
@@ -413,7 +433,6 @@ client.on('interactionCreate', async (interaction) => {
                 ]
             });
 
-            // Formatowanie wiadomości pingu (Wyznaczone role + Osoba otwierająca)
             const pingsText = `${pingRoles.map(id => `<@&${id}>`).join(' ')} <@${interaction.user.id}>`;
 
             const embed = new EmbedBuilder()
@@ -430,10 +449,48 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
 
-    // 3. OBSŁUGA PRZYCISKÓW (SESJA & ZAMYKANIE TICKETU)
+    // 3. OBSŁUGA PRZYCISKÓW
     if (interaction.isButton()) {
         const { customId } = interaction;
 
+        // Przyciski panelu /sesja
+        if (customId === 'btn_sesja_start') {
+            sessionData.active = true;
+            const embed = new EmbedBuilder()
+                .setTitle('🚀 SESJA RP ZOSTAŁA URUCHOMIONA!')
+                .setDescription(`Prowadzący: <@${interaction.user.id}>\nMożna wchodzić na serwer!`)
+                .setColor('Green')
+                .setTimestamp();
+            await interaction.reply({ content: '@everyone', embeds: [embed] });
+        }
+
+        if (customId === 'btn_sesja_koniec') {
+            sessionData.active = false;
+            const embed = new EmbedBuilder()
+                .setTitle('🛑 SESJA RP ZOSTAŁA ZAKOŃCZONA!')
+                .setDescription('Dziękujemy wszystkim za udział w dzisiejszej sesji.')
+                .setColor('Red')
+                .setTimestamp();
+            await interaction.reply({ content: '@everyone', embeds: [embed] });
+        }
+
+        if (customId === 'btn_sesja_przypomnij') {
+            const embed = new EmbedBuilder()
+                .setTitle('🔔 PRZYPOMNIENIE O SESJI RP')
+                .setDescription(`Sesja RP zbliża się wielkimi krokami!\nSzykujcie się do wejścia na serwer.`)
+                .setColor('Yellow')
+                .setTimestamp();
+            await interaction.reply({ content: '@everyone', embeds: [embed] });
+        }
+
+        if (customId === 'btn_sesja_zaplanuj') {
+            await interaction.reply({ 
+                content: '📌 Aby zaplanować nową sesję i zebrać zapisy graczy, użyj komendy: `/zapowiedz-sesji godzina: [np. 18:00]`', 
+                ephemeral: true 
+            });
+        }
+
+        // Zapisy z /zapowiedz-sesji
         if (customId === 'sesja_join') {
             sessionData.members.add(interaction.user.id);
             await interaction.update(buildSessionEmbedAndButtons());
