@@ -8,6 +8,9 @@ const {
     ActionRowBuilder, 
     ButtonBuilder, 
     ButtonStyle, 
+    ModalBuilder, 
+    TextInputBuilder, 
+    TextInputStyle,
     REST, 
     Routes 
 } = require('discord.js');
@@ -26,6 +29,15 @@ const client = new Client({
 const LOGS_CHANNEL_ID = 'ID_KANALU_LOGOW';
 const JOIN_LEAVE_CHANNEL_ID = 'ID_KANALU_PRZYLOTY_ODLOTY';
 const ADM_TASKS_CHANNEL_ID = 'ID_KANALU_ZADAN_ADM';
+
+// === PRZECHOWYWANIE DANYCH SESJI RP ===
+let sessionData = {
+    active: false,
+    host: null,
+    time: null,
+    ping: null,
+    members: new Set()
+};
 
 // === ANTY-NUKE ===
 const banTracker = new Map();
@@ -95,6 +107,24 @@ const commands = [
     new SlashCommandBuilder().setName('licencja').setDescription('Wysyła wniosek o licencję'),
     new SlashCommandBuilder().setName('propozycja').setDescription('Składa propozycję na serwerze'),
     
+    // === KOMENDY SESJI RP ===
+    new SlashCommandBuilder()
+        .setName('zapowiedz-sesji')
+        .setDescription('Wysyła zapowiedź nadchodzącej sesji RP')
+        .addStringOption(opt => opt.setName('godzina').setDescription('Godzina rozpoczęcia (np. 18:00)').setRequired(true))
+        .addRoleOption(opt => opt.setName('ping').setDescription('Rola do oznaczenia').setRequired(false))
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
+
+    new SlashCommandBuilder()
+        .setName('sesja')
+        .setDescription('Zarządzanie stanem sesji RP (start/stop)')
+        .addStringOption(opt => opt.setName('akcja').setDescription('Wybierz akcję').setRequired(true).addChoices(
+            { name: 'Start', value: 'start' },
+            { name: 'Koniec', value: 'stop' }
+        ))
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
+
+    // === KOMENDY ADM / MODERACJA ===
     new SlashCommandBuilder()
         .setName('ban')
         .setDescription('Baniuje użytkownika')
@@ -142,10 +172,142 @@ const commands = [
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 ];
 
+// Funkcja pomocnicza do budowania panelu Sesji
+function buildSessionEmbedAndButtons() {
+    const embed = new EmbedBuilder()
+        .setTitle('🎮 SESJA ROLEPLAY')
+        .setColor(sessionData.active ? 'Green' : 'Orange')
+        .addFields(
+            { name: 'Status', value: sessionData.active ? '🟢 TRWA' : '⏳ ZAPOWIEDZIANA', inline: true },
+            { name: 'Prowadzący', value: `<@${sessionData.host}>`, inline: true },
+            { name: 'Godzina', value: sessionData.time, inline: true },
+            { name: 'Zapisani Gracze', value: sessionData.members.size > 0 ? Array.from(sessionData.members).map(id => `<@${id}>`).join(', ') : 'Brak zapisanych osób' }
+        )
+        .setTimestamp();
+
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('sesja_join').setLabel('Będę').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('sesja_leave').setLabel('Nie będę').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('sesja_list').setLabel('Lista obecności').setStyle(ButtonStyle.Secondary)
+    );
+
+    return { embeds: [embed], components: [row] };
+}
+
 // === OBSŁUGA INTERAKCJI ===
 client.on('interactionCreate', async (interaction) => {
+    // 1. Komendy Slash
     if (interaction.isChatInputCommand()) {
         const { commandName } = interaction;
+
+        if (commandName === 'zapowiedz-sesji') {
+            const time = interaction.options.getString('godzina');
+            const role = interaction.options.getRole('ping');
+
+            sessionData.active = false;
+            sessionData.host = interaction.user.id;
+            sessionData.time = time;
+            sessionData.members.clear();
+
+            const sessionContent = buildSessionEmbedAndButtons();
+            const pingText = role ? `<@&${role.id}>` : '@everyone';
+
+            await interaction.reply({ content: `📣 **ZAPOWIEDŹ SESJI RP** ${pingText}`, ...sessionContent });
+        }
+
+        if (commandName === 'sesja') {
+            const action = interaction.options.getString('akcja');
+
+            if (action === 'start') {
+                sessionData.active = true;
+                const embed = new EmbedBuilder()
+                    .setTitle('🚀 SESJA RP ZOSTANIE WŁAŚNIE URUCHOMIONA!')
+                    .setDescription(`Prowadzący: <@${interaction.user.id}>\nMożna wchodzić na serwer!`)
+                    .setColor('Green')
+                    .setTimestamp();
+
+                await interaction.reply({ embeds: [embed] });
+            } else if (action === 'stop') {
+                sessionData.active = false;
+                const embed = new EmbedBuilder()
+                    .setTitle('🛑 SESJA RP ZOSTAŁA ZAKOŃCZONA!')
+                    .setDescription('Dziękujemy wszystkim za udział w dzisiejszej sesji.')
+                    .setColor('Red')
+                    .setTimestamp();
+
+                await interaction.reply({ embeds: [embed] });
+            }
+        }
+
+        if (commandName === 'embed') {
+            const modal = new ModalBuilder()
+                .setCustomId('modal_embed')
+                .setTitle('Tworzenie Ogłoszenia Embed');
+
+            const titleInput = new TextInputBuilder()
+                .setCustomId('embed_title')
+                .setLabel('Tytuł ogłoszenia')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+
+            const descInput = new TextInputBuilder()
+                .setCustomId('embed_desc')
+                .setLabel('Treść ogłoszenia')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true);
+
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(titleInput),
+                new ActionRowBuilder().addComponents(descInput)
+            );
+
+            await interaction.showModal(modal);
+        }
+
+        if (commandName === 'zgloszenie') {
+            const modal = new ModalBuilder()
+                .setCustomId('modal_zgloszenie')
+                .setTitle('Formularz Zgłoszenia');
+
+            const input = new TextInputBuilder()
+                .setCustomId('text_zgloszenie')
+                .setLabel('Opisz swój problem/zgłoszenie')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true);
+
+            modal.addComponents(new ActionRowBuilder().addComponents(input));
+            await interaction.showModal(modal);
+        }
+
+        if (commandName === 'licencja') {
+            const modal = new ModalBuilder()
+                .setCustomId('modal_licencja')
+                .setTitle('Wniosek o Licencję');
+
+            const input = new TextInputBuilder()
+                .setCustomId('text_licencja')
+                .setLabel('Podaj rodzaj licencji i uzasadnienie')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true);
+
+            modal.addComponents(new ActionRowBuilder().addComponents(input));
+            await interaction.showModal(modal);
+        }
+
+        if (commandName === 'propozycja') {
+            const modal = new ModalBuilder()
+                .setCustomId('modal_propozycja')
+                .setTitle('Nowa Propozycja');
+
+            const input = new TextInputBuilder()
+                .setCustomId('text_propozycja')
+                .setLabel('Opisz swoją propozycję')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true);
+
+            modal.addComponents(new ActionRowBuilder().addComponents(input));
+            await interaction.showModal(modal);
+        }
 
         if (commandName === 'panel-adm') {
             const embed = new EmbedBuilder()
@@ -231,7 +393,68 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
 
+    // 2. Obsługa Formularzy (ModalSubmit)
+    if (interaction.isModalSubmit()) {
+        if (interaction.customId === 'modal_embed') {
+            const title = interaction.fields.getTextInputValue('embed_title');
+            const desc = interaction.fields.getTextInputValue('embed_desc');
+
+            const embed = new EmbedBuilder()
+                .setTitle(title)
+                .setDescription(desc)
+                .setColor('Blue')
+                .setTimestamp();
+
+            await interaction.reply({ embeds: [embed] });
+        }
+
+        if (interaction.customId === 'modal_zgloszenie') {
+            const text = interaction.fields.getTextInputValue('text_zgloszenie');
+            await interaction.reply({ content: `✅ Pomyślnie wysłano zgłoszenie:\n>>> ${text}`, ephemeral: true });
+        }
+
+        if (interaction.customId === 'modal_licencja') {
+            const text = interaction.fields.getTextInputValue('text_licencja');
+            await interaction.reply({ content: `✅ Pomyślnie złożono wniosek o licencję:\n>>> ${text}`, ephemeral: true });
+        }
+
+        if (interaction.customId === 'modal_propozycja') {
+            const text = interaction.fields.getTextInputValue('text_propozycja');
+            const embed = new EmbedBuilder()
+                .setTitle('💡 Nowa Propozycja')
+                .setDescription(text)
+                .setFooter({ text: `Propozycja od: ${interaction.user.tag}` })
+                .setColor('Yellow')
+                .setTimestamp();
+
+            const msg = await interaction.reply({ embeds: [embed], fetchReply: true });
+            await msg.react('👍');
+            await msg.react('👎');
+        }
+    }
+
+    // 3. Obsługa Przycisków (Sesja RP i Panel Adm)
     if (interaction.isButton()) {
+        if (interaction.customId === 'sesja_join') {
+            sessionData.members.add(interaction.user.id);
+            const sessionContent = buildSessionEmbedAndButtons();
+            await interaction.update(sessionContent);
+        }
+
+        if (interaction.customId === 'sesja_leave') {
+            sessionData.members.delete(interaction.user.id);
+            const sessionContent = buildSessionEmbedAndButtons();
+            await interaction.update(sessionContent);
+        }
+
+        if (interaction.customId === 'sesja_list') {
+            const list = sessionData.members.size > 0 
+                ? Array.from(sessionData.members).map(id => `• <@${id}>`).join('\n')
+                : 'Brak zapisanych osób.';
+
+            await interaction.reply({ content: `📋 **Lista obecności na sesji:**\n${list}`, ephemeral: true });
+        }
+
         if (interaction.customId === 'adm_status') {
             await interaction.reply({ content: '🟢 Bot działa stabilnie. System Anty-Nuke aktywny.', ephemeral: true });
         }
