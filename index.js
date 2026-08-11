@@ -268,3 +268,5 @@ http.createServer((req, res) => {
     res.write("Bot dziala 24/7!");
     res.end();
 }).listen(process.env.PORT || 3000);
+
+client.login(process.env.DISCORD_TOKEN);
