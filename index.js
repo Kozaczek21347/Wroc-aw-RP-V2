@@ -22,7 +22,7 @@ const client = new Client({
     ]
 });
 
-// === USTAWIENIA ID KANAŁÓW ===
+// === USTAWIENIA ID KANAŁÓW (Podmień na własne ID kanałów) ===
 const LOGS_CHANNEL_ID = 'ID_KANALU_LOGOW';
 const JOIN_LEAVE_CHANNEL_ID = 'ID_KANALU_PRZYLOTY_ODLOTY';
 const ADM_TASKS_CHANNEL_ID = 'ID_KANALU_ZADAN_ADM';
@@ -246,7 +246,7 @@ client.once('ready', async () => {
     try {
         console.log('⏳ Rejestrowanie komend (globalnie)...');
         await rest.put(
-            Routes.applicationCommands(client.user.id),
+            Routes.applicationCommands(client.application.id),
             { body: commands }
         );
         console.log('✅ Wszystkie komendy pomyślnie zarejestrowane!');
@@ -255,9 +255,10 @@ client.once('ready', async () => {
     }
 });
 
+// LOGOWANIE BOTA
 client.login(process.env.DISCORD_TOKEN);
 
-// === SERWER HTTP DLA RENDER.COM ===
+// SERWER HTTP DLA RENDER.COM
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.write("Bot dziala 24/7!");
