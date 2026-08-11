@@ -8,6 +8,7 @@ const {
     ActionRowBuilder, 
     ButtonBuilder, 
     ButtonStyle, 
+    StringSelectMenuBuilder,
     ModalBuilder, 
     TextInputBuilder, 
     TextInputStyle,
@@ -26,16 +27,24 @@ const client = new Client({
     ]
 });
 
-// === USTAWIENIA ID KANAŁÓW I KATEGORII (Podmień na własne ID) ===
+// === STAŁE ID KANAŁÓW I RÓL ===
 const LOGS_CHANNEL_ID = 'ID_KANALU_LOGOW';
 const JOIN_LEAVE_CHANNEL_ID = 'ID_KANALU_PRZYLOTY_ODLOTY';
 const ADM_TASKS_CHANNEL_ID = 'ID_KANALU_ZADAN_ADM';
-const TICKETS_CATEGORY_ID = 'ID_KATEGORII_TICKETOW'; // ID kategorii, gdzie mają tworzyć się kanały ticketów
+
+// ID Kanału Alert RCB (do zmiany nazwy/kodu)
+const RCB_CHANNEL_ID = '1510326956359422170';
+
+// ID Ról Pingu w Ticketach
+const PING_ADM = '1510326955260772364';
+const PING_ZARZAD = '1510326955378085898';
+const PING_TECH = '1510326955315040444';
 
 // === BAZY DANYCH W PAMIĘCI (RAM) ===
-const warnings = new Map();  // Map<userId, Array<{reason, admin, date}>>
-const blacklist = new Map(); // Map<userId, {reason, admin, date}>
-const banTracker = new Map();
+const warnings = new Map();  
+const blacklistAdm = new Map();
+const blacklistBot = new Map();
+const blacklistUser = new Map();
 
 let sessionData = {
     active: false,
@@ -44,67 +53,13 @@ let sessionData = {
     members: new Set()
 };
 
-// === ANTY-NUKE ===
-client.on('guildBanAdd', async (ban) => {
-    try {
-        const fetchedLogs = await ban.guild.fetchAuditLogs({ limit: 1, type: 12 });
-        const banLog = fetchedLogs.entries.first();
-        if (!banLog) return;
-
-        const { executor } = banLog;
-        if (!executor || executor.bot) return;
-
-        const now = Date.now();
-        const userBans = banTracker.get(executor.id) || [];
-        const recentBans = userBans.filter(timestamp => now - timestamp < 10000);
-        recentBans.push(now);
-        banTracker.set(executor.id, recentBans);
-
-        if (recentBans.length >= 3) {
-            const member = await ban.guild.members.fetch(executor.id).catch(() => null);
-            if (member && member.bannable) {
-                await member.ban({ reason: 'Anty-Nuke: Masowe banowanie użytkowników' });
-                
-                const logChan = ban.guild.channels.cache.get(LOGS_CHANNEL_ID);
-                if (logChan) {
-                    logChan.send(`🚨 **ANTY-NUKE**: Zbanowano administratora <@${executor.id}> za masowe banowanie!`);
-                }
-            }
-        }
-    } catch (err) {
-        console.error('Błąd Anty-Nuke:', err);
-    }
-});
-
-// === PRZYLOTY / ODLOTY ===
-client.on('guildMemberAdd', (member) => {
-    const channel = member.guild.channels.cache.get(JOIN_LEAVE_CHANNEL_ID);
-    if (!channel) return;
-
-    const embed = new EmbedBuilder()
-        .setTitle('✈️ Nowy Przylot!')
-        .setDescription(`Witaj <@${member.id}> na serwerze!\n\n**Obywatela ID to:** \`${member.id}\``)
-        .setColor('Green')
-        .setTimestamp();
-
-    channel.send({ embeds: [embed] });
-});
-
-client.on('guildMemberRemove', (member) => {
-    const channel = member.guild.channels.cache.get(JOIN_LEAVE_CHANNEL_ID);
-    if (!channel) return;
-
-    const embed = new EmbedBuilder()
-        .setTitle('🛫 Odlot!')
-        .setDescription(`Obywatel **${member.user.tag}** opuścił nasz serwer.\n\n**Obywatela ID to:** \`${member.id}\``)
-        .setColor('Red')
-        .setTimestamp();
-
-    channel.send({ embeds: [embed] });
-});
-
 // === REJESTRACJA KOMEND SLASH ===
 const commands = [
+    // --- POMOC / KOMENDY ---
+    new SlashCommandBuilder()
+        .setName('komendy')
+        .setDescription('Wyświetla pełną listę wszystkich dostępnych komend'),
+
     // --- SESJA RP ---
     new SlashCommandBuilder()
         .setName('zapowiedz-sesji')
@@ -115,20 +70,20 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName('sesja')
-        .setDescription('Zarządzanie stanem sesji RP (start/stop)')
+        .setDescription('Zarządzanie stanem sesji RP')
         .addStringOption(opt => opt.setName('akcja').setDescription('Wybierz akcję').setRequired(true).addChoices(
             { name: 'Start', value: 'start' },
             { name: 'Koniec', value: 'stop' }
         ))
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
-    // --- SYSTEM TICKETÓW ---
+    // --- TICKET SYSTEM ---
     new SlashCommandBuilder()
         .setName('setup-ticket')
         .setDescription('Wysyła panel otwierania zgłoszeń (Ticketów)')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-    // --- MODERACJA (Bany, Warny, Blacklist, Mute) ---
+    // --- MODERACJA (BANY, WARNY, BLACKLISTY) ---
     new SlashCommandBuilder()
         .setName('ban')
         .setDescription('Zbanuj użytkownika')
@@ -137,14 +92,8 @@ const commands = [
         .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
 
     new SlashCommandBuilder()
-        .setName('unban')
-        .setDescription('Odbaniuj użytkownika po ID')
-        .addStringOption(opt => opt.setName('id').setDescription('ID użytkownika').setRequired(true))
-        .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
-
-    new SlashCommandBuilder()
         .setName('warn')
-        .setDescription('Daj ostrzeżenie graczo-obywatelowi')
+        .setDescription('Daj ostrzeżenie obywatelowi')
         .addUserOption(opt => opt.setName('obywatel').setDescription('Wybierz obywatela').setRequired(true))
         .addStringOption(opt => opt.setName('powod').setDescription('Powód ostrzeżenia').setRequired(true))
         .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers),
@@ -155,43 +104,22 @@ const commands = [
         .addUserOption(opt => opt.setName('obywatel').setDescription('Wybierz obywatela').setRequired(true)),
 
     new SlashCommandBuilder()
-        .setName('clearwarns')
-        .setDescription('Usuń wszystkie ostrzeżenia obywatela')
+        .setName('blacklist')
+        .setDescription('Zarządzanie Czarną Listą')
+        .addStringOption(opt => opt.setName('typ').setDescription('Wybierz typ czarnej listy').setRequired(true).addChoices(
+            { name: 'Administracja', value: 'adm' },
+            { name: 'Bot', value: 'bot' },
+            { name: 'Zwykły Gracza', value: 'user' }
+        ))
+        .addStringOption(opt => opt.setName('akcja').setDescription('Dodaj lub Usuń').setRequired(true).addChoices(
+            { name: 'Dodaj', value: 'add' },
+            { name: 'Usuń', value: 'remove' }
+        ))
         .addUserOption(opt => opt.setName('obywatel').setDescription('Wybierz obywatela').setRequired(true))
-        .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers),
-
-    new SlashCommandBuilder()
-        .setName('blacklist-add')
-        .setDescription('Dodaj obywatela do Czarnej Listy')
-        .addUserOption(opt => opt.setName('obywatel').setDescription('Wybierz obywatela').setRequired(true))
-        .addStringOption(opt => opt.setName('powod').setDescription('Powód wpisu').setRequired(true))
+        .addStringOption(opt => opt.setName('powod').setDescription('Powód (wymagane przy dodawaniu)').setRequired(false))
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-    new SlashCommandBuilder()
-        .setName('blacklist-remove')
-        .setDescription('Usuń obywatela z Czarnej Listy')
-        .addUserOption(opt => opt.setName('obywatel').setDescription('Wybierz obywatela').setRequired(true))
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-
-    new SlashCommandBuilder()
-        .setName('mute')
-        .setDescription('Wycisz obywatela')
-        .addUserOption(opt => opt.setName('obywatel').setDescription('Wybierz obywatela').setRequired(true))
-        .addIntegerOption(opt => opt.setName('czas').setDescription('Czas w minutach').setRequired(true))
-        .addStringOption(opt => opt.setName('powod').setDescription('Powód wyciszenia').setRequired(false))
-        .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers),
-
-    // --- FORMULARZE I OGŁOSZENIA ---
-    new SlashCommandBuilder().setName('embed').setDescription('Wysyła ogłoszenie w Embed'),
-    new SlashCommandBuilder().setName('licencja').setDescription('Wysyła wniosek o licencję'),
-    new SlashCommandBuilder().setName('propozycja').setDescription('Składa propozycję na serwerze'),
-
-    // --- PANEL I WEZWANIA ---
-    new SlashCommandBuilder()
-        .setName('panel-adm')
-        .setDescription('Otwiera panel zarządzania administracją')
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-
+    // --- WEZWANIA I PANEL ADM ---
     new SlashCommandBuilder()
         .setName('wezwanie-rzadowy')
         .setDescription('Wysyła wezwanie na kanał rządowy')
@@ -201,19 +129,48 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName('wezwanie-biuro')
-        .setDescription('Wysyła wezwanie do biura administracji')
+        .setDescription('Wysyła wezwanie do Biura Zarządu')
         .addUserOption(opt => opt.setName('obywatel').setDescription('Wybierz obywatela').setRequired(true))
         .addStringOption(opt => opt.setName('powod').setDescription('Powód wezwania').setRequired(true))
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
     new SlashCommandBuilder()
-        .setName('zadanie-adm')
-        .setDescription('Przydziela nowe zadanie dla administracji')
-        .addStringOption(opt => opt.setName('tresc').setDescription('Treść zadania').setRequired(true))
+        .setName('panel-adm')
+        .setDescription('Otwiera panel zarządzania administracją')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+    // --- SOCIAL MEDIA ---
+    new SlashCommandBuilder()
+        .setName('twitter')
+        .setDescription('Wysyła post na Twitterze')
+        .addStringOption(opt => opt.setName('tresc').setDescription('Treść posta').setRequired(true)),
+
+    new SlashCommandBuilder()
+        .setName('darkweb')
+        .setDescription('Wysyła anonimową wiadomość w Darkwebie')
+        .addStringOption(opt => opt.setName('tresc').setDescription('Treść wiadomości').setRequired(true)),
+
+    new SlashCommandBuilder()
+        .setName('instagram')
+        .setDescription('Wysyła post na Instagramie')
+        .addStringOption(opt => opt.setName('tresc').setDescription('Opis zdjęcia/posta').setRequired(true))
+        .addStringOption(opt => opt.setName('image_url').setDescription('Link do zdjęcia (URL)').setRequired(false)),
+
+    // --- ALERT RCB / KODY ALARMOWE ---
+    new SlashCommandBuilder()
+        .setName('alert-rcb')
+        .setDescription('Ogłasza alert RCB i zmienia kod alarmowy na kanale')
+        .addStringOption(opt => opt.setName('kod').setDescription('Wybierz kod alarmowy').setRequired(true).addChoices(
+            { name: '🟢 Kod Zielony (Bezpiecznie)', value: 'zielony' },
+            { name: '🟡 Kod Żółty (Zagrożenie)', value: 'zolty' },
+            { name: '🔴 Kod Czerwony (Wysokie Zagrożenie)', value: 'czerwony' },
+            { name: '🖤 Kod Czarny (Stan Wyjątkowy)', value: 'czarny' }
+        ))
+        .addStringOption(opt => opt.setName('opis').setDescription('Opis sytuacji / zagrożenia').setRequired(true))
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 ];
 
-// POMOCNICZA FUNKCJA WIDOKU SESJI RP
+// POMOCNICZE FUNKCJE
 function buildSessionEmbedAndButtons() {
     const embed = new EmbedBuilder()
         .setTitle('🎮 SESJA ROLEPLAY')
@@ -241,7 +198,25 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isChatInputCommand()) {
         const { commandName } = interaction;
 
-        // --- SESJA RP ---
+        // /komendy
+        if (commandName === 'komendy') {
+            const embed = new EmbedBuilder()
+                .setTitle('📜 Lista Komend Bota')
+                .setColor('Blue')
+                .addFields(
+                    { name: '🎮 Sesje RP', value: '`/zapowiedz-sesji` - Ogłoszenie sesji\n`/sesja [start/stop]` - Zarządzanie stanem sesji' },
+                    { name: '🎫 Ticket System', value: '`/setup-ticket` - Tworzenie panelu zgłoszeń z menu wyboru' },
+                    { name: '🛡️ Moderacja & Administracja', value: '`/ban` - Banowanie graczy\n`/warn` - Daj ostrzeżenie\n`/warny` - Sprawdź ostrzeżenia\n`/blacklist [adm/bot/user] [add/remove]` - Czarna lista\n`/panel-adm` - Panel zarządzania' },
+                    { name: '📢 Wezwania', value: '`/wezwanie-rzadowy` - Wezwanie na kanał rządowy\n`/wezwanie-biuro` - Wezwanie do Biura Zarządu' },
+                    { name: '📱 Social Media RP', value: '`/twitter` - Post na Twitterze\n`/darkweb` - Anonimowy wpis\n`/instagram` - Post na Instagramie' },
+                    { name: '🚨 Systemy Bezpieczeństwa', value: '`/alert-rcb` - Wysyła alert i zmienia nazwę kanału alarmowego' }
+                )
+                .setTimestamp();
+
+            await interaction.reply({ embeds: [embed], ephemeral: true });
+        }
+
+        // /zapowiedz-sesji & /sesja
         if (commandName === 'zapowiedz-sesji') {
             const time = interaction.options.getString('godzina');
             const role = interaction.options.getRole('ping');
@@ -259,192 +234,224 @@ client.on('interactionCreate', async (interaction) => {
 
         if (commandName === 'sesja') {
             const action = interaction.options.getString('akcja');
-
             if (action === 'start') {
                 sessionData.active = true;
-                const embed = new EmbedBuilder()
-                    .setTitle('🚀 SESJA RP ZOSTAŁA URUCHOMIONA!')
-                    .setDescription(`Prowadzący: <@${interaction.user.id}>\nMożna wchodzić na serwer!`)
-                    .setColor('Green')
-                    .setTimestamp();
-
+                const embed = new EmbedBuilder().setTitle('🚀 SESJA RP ZOSTAŁA URUCHOMIONA!').setDescription(`Prowadzący: <@${interaction.user.id}>\nMożna wchodzić na serwer!`).setColor('Green').setTimestamp();
                 await interaction.reply({ embeds: [embed] });
             } else if (action === 'stop') {
                 sessionData.active = false;
-                const embed = new EmbedBuilder()
-                    .setTitle('🛑 SESJA RP ZOSTAŁA ZAKOŃCZONA!')
-                    .setDescription('Dziękujemy wszystkim za udział w dzisiejszej sesji.')
-                    .setColor('Red')
-                    .setTimestamp();
-
+                const embed = new EmbedBuilder().setTitle('🛑 SESJA RP ZOSTAŁA ZAKOŃCZONA!').setDescription('Dziękujemy wszystkim za udział.').setColor('Red').setTimestamp();
                 await interaction.reply({ embeds: [embed] });
             }
         }
 
-        // --- TICKETY ---
+        // /setup-ticket
         if (commandName === 'setup-ticket') {
             const embed = new EmbedBuilder()
-                .setTitle('🎫 CENTRUM POMOCY / TICKET')
-                .setDescription('Kliknij poniższy przycisk, aby otworzyć prywatne zgłoszenie z Administracją.')
+                .setTitle('🎫 CENTRUM POMOCY I ZGŁOSZEŃ')
+                .setDescription('Wybierz z poniższego menu kategoryzowane zgłoszenie, aby skontaktować się z odpowiednią sekcją Administracji.')
                 .setColor('Blue');
 
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId('open_ticket')
-                    .setLabel('Otwórz Zgłoszenie')
-                    .setEmoji('📩')
-                    .setStyle(ButtonStyle.Primary)
-            );
+            const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId('ticket_select')
+                .setPlaceholder('Wybierz typ zgłoszenia...')
+                .addOptions([
+                    { label: 'Pytanie do administracji', value: 'pytanie_adm', emoji: '❓' },
+                    { label: 'Partnerstwo', value: 'partnerstwo', emoji: '🤝' },
+                    { label: 'Zgłoś gracza', value: 'zglos_gracza', emoji: '👤' },
+                    { label: 'Zgłoś administratora', value: 'zglos_adm', emoji: '🛡️' },
+                    { label: 'Zgłoś błąd', value: 'zglos_blad', emoji: '🐛' },
+                    { label: 'Podania', value: 'podania', emoji: '📝' },
+                ]);
 
+            const row = new ActionRowBuilder().addComponents(selectMenu);
             await interaction.reply({ embeds: [embed], components: [row] });
         }
 
-        // --- WARNY ---
+        // Moderacja (Ban, Warn, Warny, Blacklist)
+        if (commandName === 'ban') {
+            const user = interaction.options.getUser('obywatel');
+            const reason = interaction.options.getString('powod') || 'Brak powodu';
+            await interaction.guild.members.ban(user, { reason });
+            await interaction.reply({ content: `⛔ Zbanowano <@${user.id}>\n**ID:** \`${user.id}\`` });
+        }
+
         if (commandName === 'warn') {
             const user = interaction.options.getUser('obywatel');
             const reason = interaction.options.getString('powod');
-
             const userWarns = warnings.get(user.id) || [];
-            userWarns.push({ reason, admin: interaction.user.id, date: new Date().toLocaleDateString() });
+            userWarns.push({ reason, admin: interaction.user.id });
             warnings.set(user.id, userWarns);
-
-            await interaction.reply({
-                content: `⚠️ Nadano ostrzeżenie dla <@${user.id}>\n**Liczba ostrzeżeń:** ${userWarns.length}\n**Powód:** ${reason}`
-            });
+            await interaction.reply({ content: `⚠️ Nadano ostrzeżenie dla <@${user.id}> (${userWarns.length})\n**Powód:** ${reason}` });
         }
 
         if (commandName === 'warny') {
             const user = interaction.options.getUser('obywatel');
             const userWarns = warnings.get(user.id) || [];
-
-            if (userWarns.length === 0) {
-                return interaction.reply({ content: `Obywatel <@${user.id}> nie posiada żadnych ostrzeżeń.`, ephemeral: true });
-            }
-
-            const list = userWarns.map((w, index) => `${index + 1}. **Powód:** ${w.reason} (Przez: <@${w.admin}>, Dnia: ${w.date})`).join('\n');
-            await interaction.reply({ content: `📋 **Ostrzeżenia użytkownika <@${user.id}> (${userWarns.length}):**\n${list}`, ephemeral: true });
+            if (userWarns.length === 0) return interaction.reply({ content: 'Brak ostrzeżeń.', ephemeral: true });
+            const list = userWarns.map((w, i) => `${i + 1}. **Powód:** ${w.reason}`).join('\n');
+            await interaction.reply({ content: `📋 Ostrzeżenia <@${user.id}>:\n${list}`, ephemeral: true });
         }
 
-        if (commandName === 'clearwarns') {
-            const user = interaction.options.getUser('obywatel');
-            warnings.delete(user.id);
-            await interaction.reply({ content: `🧹 Usunięto wszystkie ostrzeżenia dla <@${user.id}>.` });
-        }
-
-        // --- BLACKLISTA ---
-        if (commandName === 'blacklist-add') {
-            const user = interaction.options.getUser('obywatel');
-            const reason = interaction.options.getString('powod');
-
-            blacklist.set(user.id, { reason, admin: interaction.user.id, date: new Date().toLocaleDateString() });
-
-            await interaction.reply({
-                content: `🔴 Dodano obywatela <@${user.id}> do **Czarnej Listy**!\n**Powód:** ${reason}`
-            });
-        }
-
-        if (commandName === 'blacklist-remove') {
-            const user = interaction.options.getUser('obywatel');
-            if (!blacklist.has(user.id)) {
-                return interaction.reply({ content: `Obywatel <@${user.id}> nie znajduje się na Czarnej Liście.`, ephemeral: true });
-            }
-
-            blacklist.delete(user.id);
-            await interaction.reply({ content: `🟢 Usunięto obywatela <@${user.id}> z Czarnej Listy.` });
-        }
-
-        // --- MODERACJA BANY / MUTE ---
-        if (commandName === 'ban') {
+        if (commandName === 'blacklist') {
+            const type = interaction.options.getString('typ');
+            const action = interaction.options.getString('akcja');
             const user = interaction.options.getUser('obywatel');
             const reason = interaction.options.getString('powod') || 'Brak powodu';
-            await interaction.guild.members.ban(user, { reason });
-            await interaction.reply({ content: `⛔ Zbanowano <@${user.id}>\n**Obywatela ID:** \`${user.id}\`` });
+
+            let targetMap = type === 'adm' ? blacklistAdm : (type === 'bot' ? blacklistBot : blacklistUser);
+
+            if (action === 'add') {
+                targetMap.set(user.id, { reason, admin: interaction.user.id });
+                await interaction.reply({ content: `🔴 Dodano <@${user.id}> do Czarną Listę (${type.toUpperCase()}).\n**Powód:** ${reason}` });
+            } else {
+                targetMap.delete(user.id);
+                await interaction.reply({ content: `🟢 Usunięto <@${user.id}> z Czarnej Listy (${type.toUpperCase()}).` });
+            }
         }
 
-        if (commandName === 'unban') {
-            const userId = interaction.options.getString('id');
-            await interaction.guild.members.unban(userId);
-            await interaction.reply({ content: `✅ Odbaniowano użytkownika o ID: \`${userId}\`` });
-        }
-
-        if (commandName === 'mute') {
-            const target = interaction.options.getMember('obywatel');
-            const duration = interaction.options.getInteger('czas');
-            const reason = interaction.options.getString('powod') || 'Brak powodu';
-
-            if (!target) return interaction.reply({ content: 'Nie znaleziono obywatela!', ephemeral: true });
-
-            await target.timeout(duration * 60 * 1000, reason);
-
-            await interaction.reply({
-                content: `🤐 Wyciszono obywatela <@${target.id}>\n**Obywatela ID:** \`${target.id}\` na **${duration}m**.\n**Powód:** ${reason}`
-            });
-        }
-
-        // --- EMBED / LICENCJA / PROPOZYCJA ---
-        if (commandName === 'embed') {
-            const modal = new ModalBuilder()
-                .setCustomId('modal_embed')
-                .setTitle('Tworzenie Ogłoszenia Embed');
-
-            const titleInput = new TextInputBuilder().setCustomId('embed_title').setLabel('Tytuł ogłoszenia').setStyle(TextInputStyle.Short).setRequired(true);
-            const descInput = new TextInputBuilder().setCustomId('embed_desc').setLabel('Treść ogłoszenia').setStyle(TextInputStyle.Paragraph).setRequired(true);
-
-            modal.addComponents(new ActionRowBuilder().addComponents(titleInput), new ActionRowBuilder().addComponents(descInput));
-            await interaction.showModal(modal);
-        }
-
-        if (commandName === 'licencja') {
-            const modal = new ModalBuilder().setCustomId('modal_licencja').setTitle('Wniosek o Licencję');
-            const input = new TextInputBuilder().setCustomId('text_licencja').setLabel('Podaj rodzaj licencji i uzasadnienie').setStyle(TextInputStyle.Paragraph).setRequired(true);
-            modal.addComponents(new ActionRowBuilder().addComponents(input));
-            await interaction.showModal(modal);
-        }
-
-        if (commandName === 'propozycja') {
-            const modal = new ModalBuilder().setCustomId('modal_propozycja').setTitle('Nowa Propozycja');
-            const input = new TextInputBuilder().setCustomId('text_propozycja').setLabel('Opisz swoją propozycję').setStyle(TextInputStyle.Paragraph).setRequired(true);
-            modal.addComponents(new ActionRowBuilder().addComponents(input));
-            await interaction.showModal(modal);
-        }
-
-        // --- WEZWANIA / PANEL ADM / ZADANIA ---
-        if (commandName === 'panel-adm') {
-            const embed = new EmbedBuilder().setTitle('🛠️ Panel Administracyjny').setDescription('Wybierz akcję z poniższych przycisków:').setColor('DarkRed');
-            const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('adm_status').setLabel('Status Bota').setStyle(ButtonStyle.Secondary));
-            await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
-        }
-
+        // Wezwania
         if (commandName === 'wezwanie-rzadowy') {
             const target = interaction.options.getUser('obywatel');
             const reason = interaction.options.getString('powod');
-            const embed = new EmbedBuilder().setTitle('🏛️ WEZWANIE NA RZĄDOWY').setDescription(`Obywatel: <@${target.id}>\n**ID:** \`${target.id}\`\n\n**Powód:** ${reason}\n\nProsimy o niezwłoczne stawienie się!`).setColor('Gold').setTimestamp();
+            const embed = new EmbedBuilder().setTitle('🏛️ WEZWANIE NA RZĄDOWY').setDescription(`Obywatel: <@${target.id}>\n**Powód:** ${reason}`).setColor('Gold');
             await interaction.reply({ content: `<@${target.id}>`, embeds: [embed] });
         }
 
         if (commandName === 'wezwanie-biuro') {
             const target = interaction.options.getUser('obywatel');
             const reason = interaction.options.getString('powod');
-            const embed = new EmbedBuilder().setTitle('🏢 WEZWANIE DO BIURA').setDescription(`Obywatel: <@${target.id}>\n**ID:** \`${target.id}\`\n\n**Powód:** ${reason}\n\nStaw się w biurze administracji!`).setColor('Blue').setTimestamp();
+            const embed = new EmbedBuilder().setTitle('🏢 WEZWANIE DO BIURA ZARZĄDU').setDescription(`Obywatel: <@${target.id}>\n**Powód:** ${reason}`).setColor('Blue');
             await interaction.reply({ content: `<@${target.id}>`, embeds: [embed] });
         }
 
-        if (commandName === 'zadanie-adm') {
-            const text = interaction.options.getString('tresc');
-            const taskChan = interaction.guild.channels.cache.get(ADM_TASKS_CHANNEL_ID);
-            if (!taskChan) return interaction.reply({ content: 'Nie ustawiono kanału zadań w kodzie!', ephemeral: true });
+        if (commandName === 'panel-adm') {
+            const embed = new EmbedBuilder().setTitle('🛠️ Panel Administracyjny').setDescription('Wybierz akcję:').setColor('DarkRed');
+            const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('adm_status').setLabel('Status Bota').setStyle(ButtonStyle.Secondary));
+            await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+        }
 
-            const embed = new EmbedBuilder().setTitle('📋 Nowe Zadanie Administracyjne').setDescription(text).setFooter({ text: `Zadanie dodane przez: ${interaction.user.tag}` }).setColor('Orange').setTimestamp();
-            await taskChan.send({ embeds: [embed] });
-            await interaction.reply({ content: 'Zadanie zostało wysłane na kanał administracji.', ephemeral: true });
+        // Social Media (Twitter, Darkweb, Instagram)
+        if (commandName === 'twitter') {
+            const text = interaction.options.getString('tresc');
+            const embed = new EmbedBuilder()
+                .setAuthor({ name: `${interaction.user.tag} (@${interaction.user.username})`, iconURL: interaction.user.displayAvatarURL() })
+                .setTitle('🐦 Twitter')
+                .setDescription(text)
+                .setColor('38A1F3')
+                .setTimestamp();
+            await interaction.reply({ embeds: [embed] });
+        }
+
+        if (commandName === 'darkweb') {
+            const text = interaction.options.getString('tresc');
+            const embed = new EmbedBuilder()
+                .setTitle('🕵️ Darkweb Message')
+                .setDescription(text)
+                .setFooter({ text: 'Autor: Anonim' })
+                .setColor('DarkButNotBlack')
+                .setTimestamp();
+            await interaction.reply({ embeds: [embed] });
+        }
+
+        if (commandName === 'instagram') {
+            const text = interaction.options.getString('tresc');
+            const imageUrl = interaction.options.getString('image_url');
+            const embed = new EmbedBuilder()
+                .setAuthor({ name: interaction.user.tag, iconURL: interaction.user.displayAvatarURL() })
+                .setTitle('📸 Instagram')
+                .setDescription(text)
+                .setColor('E1306C')
+                .setTimestamp();
+            if (imageUrl) embed.setImage(imageUrl);
+            await interaction.reply({ embeds: [embed] });
+        }
+
+        // Alert RCB + Zmiana nazwy kanału
+        if (commandName === 'alert-rcb') {
+            const code = interaction.options.getString('kod');
+            const desc = interaction.options.getString('opis');
+
+            const channel = interaction.guild.channels.cache.get(RCB_CHANNEL_ID);
+            let color = 'Green';
+            let codeName = '🟢 KOD ZIELONY';
+
+            if (code === 'zolty') { color = 'Yellow'; codeName = '🟡 KOD ŻÓŁTY'; }
+            if (code === 'czerwony') { color = 'Red'; codeName = '🔴 KOD CZERWONY'; }
+            if (code === 'czarny') { color = 'DarkGrey'; codeName = '🖤 KOD CZARNY'; }
+
+            if (channel) {
+                await channel.setName(`kod-alarmowy-${code}`).catch(err => console.error('Błąd zmiany nazwy:', err));
+            }
+
+            const embed = new EmbedBuilder()
+                .setTitle(`🚨 ALERT RCB - ${codeName}`)
+                .setDescription(`**Opis zagrożenia:**\n${desc}`)
+                .setColor(color)
+                .setTimestamp();
+
+            await interaction.reply({ content: '@everyone', embeds: [embed] });
         }
     }
 
-    // 2. OBSŁUGA PRZYCISKÓW (Sesja, Ticket, Zamknięcie Ticketu, Panel)
+    // 2. OBSŁUGA SELECT MENU (TICKETY)
+    if (interaction.isStringSelectMenu()) {
+        if (interaction.customId === 'ticket_select') {
+            const selected = interaction.values[0];
+            let pingRoles = [];
+            let typeName = '';
+
+            // Dopasowanie pingu zgodnie z instrukcją
+            if (selected === 'pytanie_adm') {
+                pingRoles = [PING_ADM];
+                typeName = 'Pytanie do Administracji';
+            } else if (selected === 'partnerstwo') {
+                pingRoles = [PING_ADM];
+                typeName = 'Partnerstwo';
+            } else if (selected === 'zglos_gracza') {
+                pingRoles = [PING_ADM];
+                typeName = 'Zgłoszenie Gracza';
+            } else if (selected === 'zglos_adm') {
+                pingRoles = [PING_ZARZAD];
+                typeName = 'Zgłoszenie Administratora';
+            } else if (selected === 'zglos_blad') {
+                pingRoles = [PING_ZARZAD, PING_TECH];
+                typeName = 'Zgłoszenie Błędu';
+            } else if (selected === 'podania') {
+                pingRoles = [PING_ZARZAD];
+                typeName = 'Podanie';
+            }
+
+            const channelName = `ticket-${interaction.user.username}`;
+            const ticketChannel = await interaction.guild.channels.create({
+                name: channelName,
+                type: ChannelType.GuildText,
+                permissionOverwrites: [
+                    { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+                    { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+                ]
+            });
+
+            const pingsText = pingRoles.map(id => `<@&${id}>`).join(' ');
+
+            const embed = new EmbedBuilder()
+                .setTitle(`🎫 Ticket: ${typeName}`)
+                .setDescription(`Witaj <@${interaction.user.id}>! Opisz szczegółowo swoją sprawę.\nZaraz pojawi się odpowiednia osoba.`)
+                .setColor('Green');
+
+            const closeBtn = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('close_ticket').setLabel('Zamknij Ticket').setStyle(ButtonStyle.Danger).setEmoji('🔒')
+            );
+
+            await ticketChannel.send({ content: `${pingsText} | <@${interaction.user.id}>`, embeds: [embed], components: [closeBtn] });
+            await interaction.reply({ content: `✅ Twój ticket został utworzony: ${ticketChannel}`, ephemeral: true });
+        }
+    }
+
+    // 3. OBSŁUGA PRZYCISKÓW (SESJA & ZAMYKANIE TICKETU)
     if (interaction.isButton()) {
         const { customId } = interaction;
 
-        // SESJA
         if (customId === 'sesja_join') {
             sessionData.members.add(interaction.user.id);
             await interaction.update(buildSessionEmbedAndButtons());
@@ -458,93 +465,41 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.reply({ content: `📋 **Lista obecności:**\n${list}`, ephemeral: true });
         }
 
-        // TICKET - OTWARCIE
-        if (customId === 'open_ticket') {
-            const channelName = `ticket-${interaction.user.username}`;
-            
-            const ticketChannel = await interaction.guild.channels.create({
-                name: channelName,
-                type: ChannelType.GuildText,
-                parent: TICKETS_CATEGORY_ID !== 'ID_KATEGORII_TICKETOW' ? TICKETS_CATEGORY_ID : null,
-                permissionOverwrites: [
-                    { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-                    { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
-                ]
-            });
-
-            const embed = new EmbedBuilder()
-                .setTitle(`📩 Zgłoszenie użytkownika ${interaction.user.tag}`)
-                .setDescription('Opisz swój problem. Administracja wkrótce odpowie.')
-                .setColor('Green');
-
-            const closeBtn = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('close_ticket').setLabel('Zamknij Ticket').setStyle(ButtonStyle.Danger).setEmoji('🔒')
-            );
-
-            await ticketChannel.send({ content: `<@${interaction.user.id}>`, embeds: [embed], components: [closeBtn] });
-            await interaction.reply({ content: `✅ Stworzono zgłoszenie: ${ticketChannel}`, ephemeral: true });
-        }
-
-        // TICKET - ZAMKNIĘCIE
         if (customId === 'close_ticket') {
-            await interaction.reply('🔒 Kanał zostanie usunięty za 5 sekund...');
+            await interaction.reply('🔒 Zamknięcie ticketu za 5 sekund...');
             setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
         }
 
         if (customId === 'adm_status') {
-            await interaction.reply({ content: '🟢 Bot działa stabilnie. System Anty-Nuke aktywny.', ephemeral: true });
-        }
-    }
-
-    // 3. OBSŁUGA FORMULARZY (MODALE)
-    if (interaction.isModalSubmit()) {
-        if (interaction.customId === 'modal_embed') {
-            const title = interaction.fields.getTextInputValue('embed_title');
-            const desc = interaction.fields.getTextInputValue('embed_desc');
-            const embed = new EmbedBuilder().setTitle(title).setDescription(desc).setColor('Blue').setTimestamp();
-            await interaction.reply({ embeds: [embed] });
-        }
-
-        if (interaction.customId === 'modal_licencja') {
-            const text = interaction.fields.getTextInputValue('text_licencja');
-            await interaction.reply({ content: `✅ Pomyślnie złożono wniosek o licencję:\n>>> ${text}`, ephemeral: true });
-        }
-
-        if (interaction.customId === 'modal_propozycja') {
-            const text = interaction.fields.getTextInputValue('text_propozycja');
-            const embed = new EmbedBuilder().setTitle('💡 Nowa Propozycja').setDescription(text).setFooter({ text: `Propozycja od: ${interaction.user.tag}` }).setColor('Yellow').setTimestamp();
-            const msg = await interaction.reply({ embeds: [embed], fetchReply: true });
-            await msg.react('👍');
-            await msg.react('👎');
+            await interaction.reply({ content: '🟢 Bot działa bez przeszkód.', ephemeral: true });
         }
     }
 });
 
-// === LOGOWANIE I REJESTRACJA KOMEND ===
+// === INICJALIZACJA I START BOTA ===
 client.once('ready', async () => {
-    console.log(`🤖 Bot jest gotowy! Zalogowano jako ${client.user.tag}`);
+    console.log(`🤖 Zalogowano jako ${client.user.tag}`);
 
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
-        console.log('⏳ Rejestrowanie komend (globalnie)...');
+        console.log('⏳ Rejestracja komend slash...');
         await rest.put(
             Routes.applicationCommands(client.application.id),
             { body: commands }
         );
-        console.log('✅ Wszystkie komendy pomyślnie zarejestrowane!');
+        console.log('✅ Wstawiono wszystkie komendy pomyślnie!');
     } catch (error) {
-        console.error('Błąd rejestracji komend:', error);
+        console.error('Błąd przy dodawaniu komend:', error);
     }
 });
 
-// LOGOWANIE BOTA
 client.login(process.env.DISCORD_TOKEN);
 
-// SERWER HTTP DLA RENDER.COM
+// SERVER HTTP DLA RENDER.COM
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.write("Bot dziala 24/7!");
     res.end();
 }).listen(PORT, () => {
-    console.log(`Nasłuchiwanie HTTP na porcie ${PORT}`);
+    console.log(`Port HTTP: ${PORT}`);
 });
