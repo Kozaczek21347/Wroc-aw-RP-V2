@@ -106,13 +106,11 @@ const commands = [
         .setDescription('Wysyła panel sterowania sesją z przyciskami (Start, Koniec, Przypomnij, Zaplanuj)')
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
-    // KOMENDA: Szybka propozycja RP z przyciskami chętnych
     new SlashCommandBuilder()
         .setName('propozycja-rp')
         .setDescription('Proponuje szybką akcję RP z przyciskami wyboru dla chętnych')
         .addStringOption(opt => opt.setName('opis').setDescription('Co proponujesz zagrać?').setRequired(true)),
 
-    // KOMENDY ODGRYWANIA RP (me, do, try)
     new SlashCommandBuilder()
         .setName('me')
         .setDescription('Opisuje czynność wykonywaną przez Twoją postać')
@@ -222,6 +220,53 @@ const commands = [
         ))
         .addStringOption(opt => opt.setName('dodatkowy_opis').setDescription('Dodatkowy opis sytuacji / instrukcje dla graczy').setRequired(false))
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+    // === NOWE KOMENDY ADM / ZARZĄDZANIE PERONALEM ===
+    new SlashCommandBuilder()
+        .setName('plus')
+        .setDescription('Przyznaje plusa członkowi administracji')
+        .addUserOption(opt => opt.setName('admin').setDescription('Członek administracji').setRequired(true))
+        .addStringOption(opt => opt.setName('powod').setDescription('Powód przyznania plusa').setRequired(true))
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+    new SlashCommandBuilder()
+        .setName('minus')
+        .setDescription('Przyznaje minusa członkowi administracji')
+        .addUserOption(opt => opt.setName('admin').setDescription('Członek administracji').setRequired(true))
+        .addStringOption(opt => opt.setName('powod').setDescription('Powód przyznania minusa').setRequired(true))
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+    new SlashCommandBuilder()
+        .setName('awans')
+        .setDescription('Ogłasza awans członka administracji')
+        .addUserOption(opt => opt.setName('admin').setDescription('Wybrana osoba').setRequired(true))
+        .addStringOption(opt => opt.setName('stara_ranga').setDescription('Poprzednia ranga').setRequired(true))
+        .addStringOption(opt => opt.setName('nowa_ranga').setDescription('Nowa ranga').setRequired(true))
+        .addStringOption(opt => opt.setName('powod').setDescription('Powód awansu').setRequired(false))
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+    new SlashCommandBuilder()
+        .setName('degrad')
+        .setDescription('Ogłasza degradację członka administracji')
+        .addUserOption(opt => opt.setName('admin').setDescription('Wybrana osoba').setRequired(true))
+        .addStringOption(opt => opt.setName('stara_ranga').setDescription('Poprzednia ranga').setRequired(true))
+        .addStringOption(opt => opt.setName('nowa_ranga').setDescription('Nowa ranga (lub usunięcie z zespoł)').setRequired(true))
+        .addStringOption(opt => opt.setName('powod').setDescription('Powód degradacji').setRequired(true))
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+    new SlashCommandBuilder()
+        .setName('skarga-adm')
+        .setDescription('Składa skargę na członka administracji')
+        .addUserOption(opt => opt.setName('admin').setDescription('Członek administracji, na którego składasz skargę').setRequired(true))
+        .addStringOption(opt => opt.setName('opis').setDescription('Opis przewinienia / sytuacji').setRequired(true))
+        .addStringOption(opt => opt.setName('dowody').setDescription('Link do dowodów (zrzuty ekranu, nagranie)').setRequired(true)),
+
+    new SlashCommandBuilder()
+        .setName('pochwala-adm')
+        .setDescription('Składa pochwałę dla członka administracji')
+        .addUserOption(opt => opt.setName('admin').setDescription('Członek administracji, którego chcesz pochwalić').setRequired(true))
+        .addStringOption(opt => opt.setName('powod').setDescription('Za co chcesz pochwalić ten personel?').setRequired(true))
+        .addStringOption(opt => opt.setName('opis').setDescription('Dodatkowy opis sytuacji (opcjonalnie)').setRequired(false))
 ];
 
 function buildSessionEmbedAndButtons() {
@@ -255,23 +300,121 @@ client.on('interactionCreate', async (interaction) => {
                 .setTitle('📜 Lista Komend Bota')
                 .setColor('Blue')
                 .addFields(
-                    { name: '🎮 Zarządzanie Sesją RP', value: '`/zapowiedz-sesji` - Oficjalna zapowiedź sesji\n`/sesja` - Panel zarządzania (Start, Koniec, Przypomnij, Zaplanuj)' },
-                    { name: '🎭 Szybkie Akcje i Odgrywanie RP', value: '`/propozycja-rp` - Szybka propozycja RP z wyborem chętnych\n`/me` - Opis akcji postaci\n`/do` - Opis otoczenia\n`/try` - Wynik 50/50\n`/szukam-rp` - Ogłoszenie poszukiwania graczy' },
-                    { name: '🎫 Ticket System', value: '`/ticket-panel` - Panel zgłoszeń do administracji' },
-                    { name: '🛡️ Moderacja & Administracja', value: '`/ban` - Banowanie\n`/warn` - Ostrzeżenia\n`/warny` - Lista ostrzeżeń\n`/blacklist` - Czarna lista\n`/panel-adm` - Panel zarządzania' },
-                    { name: '📢 Wezwania', value: '`/wezwanie-rzadowy` - Wezwanie na rządowy\n`/wezwanie-biuro` - Wezwanie do Biura Zarządu' },
-                    { name: '📱 Social Media RP', value: '`/twitter` - Twitter\n`/darkweb` - Darkweb\n`/instagram` - Instagram' },
-                    { name: '🚨 Systemy Bezpieczeństwa', value: '`/alert-rcb` - Wysyła alert RCB' }
+                    { name: '🎮 Zarządzanie Sesją RP', value: '`/zapowiedz-sesji` - Zapowiedź sesji\n`/sesja` - Panel zarządzania' },
+                    { name: '🎭 Szybkie Akcje i RP', value: '`/propozycja-rp`, `/me`, `/do`, `/try`, `/szukam-rp`' },
+                    { name: '👑 Zarządzanie Kadrami Adm', value: '`/plus` - Przyznanie plusa\n`/minus` - Przyznanie minusa\n`/awans` - Ogłoszenie awansu\n`/degrad` - Ogłoszenie degradacji' },
+                    { name: '📣 Zgłoszenia nt. Administracji', value: '`/skarga-adm` - Skarga na administratora\n`/pochwala-adm` - Pochwała administratora' },
+                    { name: '🛡️ Moderacja i Narzędzia', value: '`/ban`, `/warn`, `/warny`, `/blacklist`, `/alert-rcb`' }
                 )
                 .setTimestamp();
 
             await interaction.reply({ embeds: [embed], ephemeral: true });
         }
 
-        // OBSŁUGA /PROPOZYCJA-RP
+        // === KOMENDY PLUS/MINUS/AWANS/DEGRAD ===
+        if (commandName === 'plus') {
+            const admin = interaction.options.getUser('admin');
+            const reason = interaction.options.getString('powod');
+            const embed = new EmbedBuilder()
+                .setTitle('➕ OTRZYMANO PLUSA')
+                .setDescription(`**Administrator:** <@${admin.id}>\n**Nadający:** <@${interaction.user.id}>\n**Powód:** ${reason}`)
+                .setColor('Green')
+                .setTimestamp();
+            await interaction.reply({ embeds: [embed] });
+        }
+
+        if (commandName === 'minus') {
+            const admin = interaction.options.getUser('admin');
+            const reason = interaction.options.getString('powod');
+            const embed = new EmbedBuilder()
+                .setTitle('➖ OTRZYMANO MINUSA')
+                .setDescription(`**Administrator:** <@${admin.id}>\n**Nadający:** <@${interaction.user.id}>\n**Powód:** ${reason}`)
+                .setColor('Red')
+                .setTimestamp();
+            await interaction.reply({ embeds: [embed] });
+        }
+
+        if (commandName === 'awans') {
+            const admin = interaction.options.getUser('admin');
+            const oldRank = interaction.options.getString('stara_ranga');
+            const newRank = interaction.options.getString('nowa_ranga');
+            const reason = interaction.options.getString('powod') || 'Dobra praca i zaangażowanie w rozwój serwera.';
+            const embed = new EmbedBuilder()
+                .setTitle('🎉 OGŁOSZENIE AWANSU')
+                .setDescription(`Gratulacje dla <@${admin.id}> za awans w strukturach administracji!`)
+                .addFields(
+                    { name: 'Stara ranga', value: oldRank, inline: true },
+                    { name: 'Nowa ranga', value: newRank, inline: true },
+                    { name: 'Powód', value: reason }
+                )
+                .setColor('Gold')
+                .setTimestamp();
+            await interaction.reply({ content: `<@${admin.id}>`, embeds: [embed] });
+        }
+
+        if (commandName === 'degrad') {
+            const admin = interaction.options.getUser('admin');
+            const oldRank = interaction.options.getString('stara_ranga');
+            const newRank = interaction.options.getString('nowa_ranga');
+            const reason = interaction.options.getString('powod');
+            const embed = new EmbedBuilder()
+                .setTitle('📉 OGŁOSZENIE DEGRADACJI')
+                .setDescription(`Informujemy o zmianie rangi administratora <@${admin.id}>.`)
+                .addFields(
+                    { name: 'Dotychczasowa ranga', value: oldRank, inline: true },
+                    { name: 'Nowa ranga / Status', value: newRank, inline: true },
+                    { name: 'Powód', value: reason }
+                )
+                .setColor('DarkRed')
+                .setTimestamp();
+            await interaction.reply({ embeds: [embed] });
+        }
+
+        // === SKARGA I POCHWAŁA NA ADM ===
+        if (commandName === 'skarga-adm') {
+            const admin = interaction.options.getUser('admin');
+            const desc = interaction.options.getString('opis');
+            const proof = interaction.options.getString('dowody');
+
+            const embed = new EmbedBuilder()
+                .setTitle('⚖️ SKARGA NA CZŁONKA ADMINISTRACJI')
+                .addFields(
+                    { name: 'Zgłaszający', value: `<@${interaction.user.id}> (\`${interaction.user.id}\`)`, inline: true },
+                    { name: 'Oskarżony Admin', value: `<@${admin.id}> (\`${admin.id}\`)`, inline: true },
+                    { name: 'Opis sytuacji', value: desc },
+                    { name: 'Dowody', value: proof }
+                )
+                .setColor('Red')
+                .setFooter({ text: 'Zgłoszenie trafiło do weryfikacji przez Zarząd' })
+                .setTimestamp();
+
+            await interaction.reply({ content: '✅ Twoja skarga na członka administracji została pomyślnie wysłana i przekazana do Zarządu!', ephemeral: true });
+            await interaction.channel.send({ embeds: [embed] });
+        }
+
+        if (commandName === 'pochwala-adm') {
+            const admin = interaction.options.getUser('admin');
+            const reason = interaction.options.getString('powod');
+            const desc = interaction.options.getString('opis') || 'Brak dodatkowego opisu.';
+
+            const embed = new EmbedBuilder()
+                .setTitle('⭐ POCHWAŁA DLA CZŁONKA ADMINISTRACJI')
+                .addFields(
+                    { name: 'Chwalony Admin', value: `<@${admin.id}>`, inline: true },
+                    { name: 'Wysyłający', value: `<@${interaction.user.id}>`, inline: true },
+                    { name: 'Powód pochwały', value: reason },
+                    { name: 'Szczegóły', value: desc }
+                )
+                .setColor('LuminousVividPink')
+                .setTimestamp();
+
+            await interaction.reply({ content: '✅ Dziękujemy! Pochwała dla członka administracji została opublikowana.', ephemeral: true });
+            await interaction.channel.send({ embeds: [embed] });
+        }
+
+        // --- Pozostałe istniejące komendy ---
         if (commandName === 'propozycja-rp') {
             const desc = interaction.options.getString('opis');
-
             const embed = new EmbedBuilder()
                 .setTitle('❓ PROPOZYCJA AKCJI RP')
                 .setDescription(`**Założyciel:** <@${interaction.user.id}>\n\n**Opis propozycji:**\n${desc}\n\n**Chętni (0):**\nBrak`)
@@ -287,12 +430,7 @@ client.on('interactionCreate', async (interaction) => {
 
             const msg = await interaction.reply({ content: '@everyone Ktoś ma ochotę na RP?', embeds: [embed], components: [row], fetchReply: true });
 
-            rpProposals.set(msg.id, {
-                author: interaction.user.id,
-                desc: desc,
-                yes: new Set(),
-                no: new Set()
-            });
+            rpProposals.set(msg.id, { author: interaction.user.id, desc: desc, yes: new Set(), no: new Set() });
         }
 
         if (commandName === 'me') {
@@ -442,7 +580,6 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.reply({ embeds: [embed] });
         }
 
-        // ZAKTUALIZOWANA KOMENDA /ALERT-RCB
         if (commandName === 'alert-rcb') {
             const codeKey = interaction.options.getString('kod');
             const extraDesc = interaction.options.getString('dodatkowy_opis');
@@ -497,12 +634,9 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isButton()) {
         const { customId, message } = interaction;
 
-        // Handling /propozycja-rp
         if (customId === 'prop_yes' || customId === 'prop_no' || customId === 'prop_list') {
             const proposal = rpProposals.get(message.id);
-            if (!proposal) {
-                return interaction.reply({ content: '❌ Ta propozycja RP wygasła lub została usunięta.', ephemeral: true });
-            }
+            if (!proposal) return interaction.reply({ content: '❌ Ta propozycja RP wygasła.', ephemeral: true });
 
             if (customId === 'prop_yes') {
                 proposal.yes.add(interaction.user.id);
@@ -519,14 +653,12 @@ client.on('interactionCreate', async (interaction) => {
                 });
             }
 
-            // Aktualizacja embeda propozycji
             const updatedEmbed = EmbedBuilder.from(message.embeds[0])
                 .setDescription(`**Założyciel:** <@${proposal.author}>\n\n**Opis propozycji:**\n${proposal.desc}\n\n**Chętni (${proposal.yes.size}):**\n${proposal.yes.size > 0 ? Array.from(proposal.yes).map(id => `<@${id}>`).join(', ') : 'Brak'}`);
 
             await interaction.update({ embeds: [updatedEmbed] });
         }
 
-        // Przyciski panelu /sesja
         if (customId === 'btn_sesja_start') {
             sessionData.active = true;
             const embed = new EmbedBuilder().setTitle('🚀 SESJA RP ZOSTAŁA URUCHOMIONA!').setDescription(`Prowadzący: <@${interaction.user.id}>\nMożna wchodzić na serwer!`).setColor('Green').setTimestamp();
@@ -545,10 +677,9 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         if (customId === 'btn_sesja_zaplanuj') {
-            await interaction.reply({ content: '📌 Aby zaplanować oficjalną sesję i zebrać zapisy graczy, użyj: `/zapowiedz-sesji godzina: [np. 18:00]`', ephemeral: true });
+            await interaction.reply({ content: '📌 Użyj: `/zapowiedz-sesji godzina: [np. 18:00]`', ephemeral: true });
         }
 
-        // Zapisy z /zapowiedz-sesji
         if (customId === 'sesja_join') {
             sessionData.members.add(interaction.user.id);
             await interaction.update(buildSessionEmbedAndButtons());
