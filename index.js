@@ -63,6 +63,22 @@ const commands = [
         .setDescription('Wysyła panel sterowania sesją z przyciskami (Start, Koniec, Przypomnij, Zaplanuj)')
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
+    // === KOMENDY ODGRYWANIA RP (me, do, try) ===
+    new SlashCommandBuilder()
+        .setName('me')
+        .setDescription('Opisuje czynność wykonywaną przez Twoją postać')
+        .addStringOption(opt => opt.setName('akcja').setDescription('Treść czynności (np. wyciąga dowód osobisty)').setRequired(true)),
+
+    new SlashCommandBuilder()
+        .setName('do')
+        .setDescription('Opisuje otoczenie lub stan sytuacji wokół Twojej postaci')
+        .addStringOption(opt => opt.setName('opis').setDescription('Treść opisu (np. Na stole leży pusta teczka)').setRequired(true)),
+
+    new SlashCommandBuilder()
+        .setName('try')
+        .setDescription('Wykonuje próbę podjęcia trudnej czynności (losowanie 50/50)')
+        .addStringOption(opt => opt.setName('czynnoscc').setDescription('Co próbuje zrobić Twoja postać?').setRequired(true)),
+
     new SlashCommandBuilder()
         .setName('szukam-rp')
         .setDescription('Wysyła ogłoszenie, że szukasz osób do odgrywania Roleplay')
@@ -188,10 +204,10 @@ client.on('interactionCreate', async (interaction) => {
                 .setTitle('📜 Lista Komend Bota')
                 .setColor('Blue')
                 .addFields(
-                    { name: '🎮 Zarządzanie Sesją RP', value: '`/zapowiedz-sesji` - Zapisy i zapowiedź sesji\n`/sesja` - Panel z przyciskami (Start, Koniec, Przypomnij, Zaplanuj)' },
-                    { name: '📢 Ogłoszenia RP', value: '`/szukam-rp` - Ogłoszenie, że szukasz chętnych do wspólnego odgrywania RP' },
-                    { name: '🎫 Ticket System', value: '`/ticket-panel` - Panel zgłoszeń z podziałem m.in. na Do Zarządu' },
-                    { name: '🛡️ Moderacja & Administracja', value: '`/ban` - Banowanie graczy\n`/warn` - Ostrzeżenia\n`/warny` - Sprawdzanie ostrzeżeń\n`/blacklist` - Czarna lista\n`/panel-adm` - Panel zarządzania' },
+                    { name: '🎮 Zarządzanie Sesją RP', value: '`/zapowiedz-sesji` - Zapisy i zapowiedź sesji\n`/sesja` - Panel zarządzania (Start, Koniec, Przypomnij, Zaplanuj)' },
+                    { name: '🎭 Odgrywanie Naracji RP', value: '`/me` - Opis akcji postaci\n`/do` - Opis otoczenia/sytuacji\n`/try` - Proba z wynikiem 50/50 (Udane/Nieudane)\n`/szukam-rp` - Ogłoszenie poszukiwania graczy' },
+                    { name: '🎫 Ticket System', value: '`/ticket-panel` - Panel zgłoszeń z opcją Do Zarządu' },
+                    { name: '🛡️ Moderacja & Administracja', value: '`/ban` - Banowanie graczy\n`/warn` - Ostrzeżenia\n`/warny` - Lista ostrzeżeń\n`/blacklist` - Czarna lista\n`/panel-adm` - Panel zarządzania' },
                     { name: '📢 Wezwania', value: '`/wezwanie-rzadowy` - Wezwanie na rządowy\n`/wezwanie-biuro` - Wezwanie do Biura Zarządu' },
                     { name: '📱 Social Media RP', value: '`/twitter` - Twitter\n`/darkweb` - Darkweb\n`/instagram` - Instagram' },
                     { name: '🚨 Systemy Bezpieczeństwa', value: '`/alert-rcb` - Wysyła alert i zmienia kod na kanale' }
@@ -199,6 +215,36 @@ client.on('interactionCreate', async (interaction) => {
                 .setTimestamp();
 
             await interaction.reply({ embeds: [embed], ephemeral: true });
+        }
+
+        // OBSŁUGA /ME, /DO, /TRY
+        if (commandName === 'me') {
+            const action = interaction.options.getString('akcja');
+            const embed = new EmbedBuilder()
+                .setDescription(`*<@${interaction.user.id}> ${action}*`)
+                .setColor('#C2A2DA');
+            await interaction.reply({ embeds: [embed] });
+        }
+
+        if (commandName === 'do') {
+            const desc = interaction.options.getString('opis');
+            const embed = new EmbedBuilder()
+                .setDescription(`**[DO]** ${desc} *((( <@${interaction.user.id}> )))*`)
+                .setColor('#FFB400');
+            await interaction.reply({ embeds: [embed] });
+        }
+
+        if (commandName === 'try') {
+            const action = interaction.options.getString('czynnoscc');
+            const success = Math.random() < 0.5;
+            const resultText = success ? '🟢 **[UDANE]**' : '🔴 **[NIEUDANE]**';
+            const color = success ? 'Green' : 'Red';
+
+            const embed = new EmbedBuilder()
+                .setTitle(`🎲 Próba Akcji RP`)
+                .setDescription(`<@${interaction.user.id}> próbuje: *${action}*\n\nWynik: ${resultText}`)
+                .setColor(color);
+            await interaction.reply({ embeds: [embed] });
         }
 
         if (commandName === 'szukam-rp') {
@@ -230,11 +276,11 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.reply({ content: `📣 **ZAPOWIEDŹ SESJI RP** ${pingText}`, ...sessionContent });
         }
 
-        // NOWY PANEL CONTROL PANEL /SESJA Z PRZYCISKAMI
+        // PANEL Z PRZYCISKAMI /SESJA
         if (commandName === 'sesja') {
             const embed = new EmbedBuilder()
                 .setTitle('⚙️ Panel Zarządzania Sesją RP')
-                .setDescription('Wybierz akcję poniżej, aby zarządzać stanem sesji RP:')
+                .setDescription('Wybierz akcję z poniższych przycisków, aby zmienić stan sesji RP:')
                 .setColor('Blurple');
 
             const row = new ActionRowBuilder().addComponents(
