@@ -79,7 +79,7 @@ const commands = [
 
     // --- TICKET SYSTEM ---
     new SlashCommandBuilder()
-        .setName('setup-ticket')
+        .setName('ticket-panel')
         .setDescription('Wysyła panel otwierania zgłoszeń (Ticketów)')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
@@ -205,7 +205,7 @@ client.on('interactionCreate', async (interaction) => {
                 .setColor('Blue')
                 .addFields(
                     { name: '🎮 Sesje RP', value: '`/zapowiedz-sesji` - Ogłoszenie sesji\n`/sesja [start/stop]` - Zarządzanie stanem sesji' },
-                    { name: '🎫 Ticket System', value: '`/setup-ticket` - Tworzenie panelu zgłoszeń z menu wyboru' },
+                    { name: '🎫 Ticket System', value: '`/ticket-panel` - Tworzenie panelu zgłoszeń z menu wyboru' },
                     { name: '🛡️ Moderacja & Administracja', value: '`/ban` - Banowanie graczy\n`/warn` - Daj ostrzeżenie\n`/warny` - Sprawdź ostrzeżenia\n`/blacklist [adm/bot/user] [add/remove]` - Czarna lista\n`/panel-adm` - Panel zarządzania' },
                     { name: '📢 Wezwania', value: '`/wezwanie-rzadowy` - Wezwanie na kanał rządowy\n`/wezwanie-biuro` - Wezwanie do Biura Zarządu' },
                     { name: '📱 Social Media RP', value: '`/twitter` - Post na Twitterze\n`/darkweb` - Anonimowy wpis\n`/instagram` - Post na Instagramie' },
@@ -245,23 +245,23 @@ client.on('interactionCreate', async (interaction) => {
             }
         }
 
-        // /setup-ticket
-        if (commandName === 'setup-ticket') {
+        // /ticket-panel
+        if (commandName === 'ticket-panel') {
             const embed = new EmbedBuilder()
-                .setTitle('🎫 CENTRUM POMOCY I ZGŁOSZEŃ')
-                .setDescription('Wybierz z poniższego menu kategoryzowane zgłoszenie, aby skontaktować się z odpowiednią sekcją Administracji.')
-                .setColor('Blue');
+                .setTitle('🏷️ Centrum Pomocy i Zgłoszeń')
+                .setDescription('Wybierz z poniższego menu temat sprawy, w której chcesz się skontaktować z administracją.')
+                .setColor('#2F3136');
 
             const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId('ticket_select')
-                .setPlaceholder('Wybierz typ zgłoszenia...')
+                .setPlaceholder('Pytanie do administracji')
                 .addOptions([
                     { label: 'Pytanie do administracji', value: 'pytanie_adm', emoji: '❓' },
                     { label: 'Partnerstwo', value: 'partnerstwo', emoji: '🤝' },
                     { label: 'Zgłoś gracza', value: 'zglos_gracza', emoji: '👤' },
                     { label: 'Zgłoś administratora', value: 'zglos_adm', emoji: '🛡️' },
                     { label: 'Zgłoś błąd', value: 'zglos_blad', emoji: '🐛' },
-                    { label: 'Podania', value: 'podania', emoji: '📝' },
+                    { label: 'Podanie', value: 'podanie', emoji: '📝' },
                 ]);
 
             const row = new ActionRowBuilder().addComponents(selectMenu);
@@ -303,7 +303,7 @@ client.on('interactionCreate', async (interaction) => {
 
             if (action === 'add') {
                 targetMap.set(user.id, { reason, admin: interaction.user.id });
-                await interaction.reply({ content: `🔴 Dodano <@${user.id}> do Czarną Listę (${type.toUpperCase()}).\n**Powód:** ${reason}` });
+                await interaction.reply({ content: `🔴 Dodano <@${user.id}> do Czarnej Listy (${type.toUpperCase()}).\n**Powód:** ${reason}` });
             } else {
                 targetMap.delete(user.id);
                 await interaction.reply({ content: `🟢 Usunięto <@${user.id}> z Czarnej Listy (${type.toUpperCase()}).` });
@@ -401,7 +401,7 @@ client.on('interactionCreate', async (interaction) => {
             let pingRoles = [];
             let typeName = '';
 
-            // Dopasowanie pingu zgodnie z instrukcją
+            // Wyznaczone pingi ról zgodnie z Twoimi wymaganiami
             if (selected === 'pytanie_adm') {
                 pingRoles = [PING_ADM];
                 typeName = 'Pytanie do Administracji';
@@ -417,8 +417,8 @@ client.on('interactionCreate', async (interaction) => {
             } else if (selected === 'zglos_blad') {
                 pingRoles = [PING_ZARZAD, PING_TECH];
                 typeName = 'Zgłoszenie Błędu';
-            } else if (selected === 'podania') {
-                pingRoles = [PING_ZARZAD];
+            } else if (selected === 'podanie') {
+                pingRoles = [PING_ADM];
                 typeName = 'Podanie';
             }
 
@@ -432,7 +432,8 @@ client.on('interactionCreate', async (interaction) => {
                 ]
             });
 
-            const pingsText = pingRoles.map(id => `<@&${id}>`).join(' ');
+            // Tworzenie treści pingu: Wyznaczone Role + Użytkownik który otworzył
+            const pingsText = `${pingRoles.map(id => `<@&${id}>`).join(' ')} <@${interaction.user.id}>`;
 
             const embed = new EmbedBuilder()
                 .setTitle(`🎫 Ticket: ${typeName}`)
@@ -443,7 +444,7 @@ client.on('interactionCreate', async (interaction) => {
                 new ButtonBuilder().setCustomId('close_ticket').setLabel('Zamknij Ticket').setStyle(ButtonStyle.Danger).setEmoji('🔒')
             );
 
-            await ticketChannel.send({ content: `${pingsText} | <@${interaction.user.id}>`, embeds: [embed], components: [closeBtn] });
+            await ticketChannel.send({ content: pingsText, embeds: [embed], components: [closeBtn] });
             await interaction.reply({ content: `✅ Twój ticket został utworzony: ${ticketChannel}`, ephemeral: true });
         }
     }
@@ -495,7 +496,7 @@ client.once('ready', async () => {
 
 client.login(process.env.DISCORD_TOKEN);
 
-// SERVER HTTP DLA RENDER.COM
+// SERWER HTTP DLA RENDER.COM
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.write("Bot dziala 24/7!");
