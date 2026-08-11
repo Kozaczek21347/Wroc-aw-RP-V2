@@ -45,6 +45,9 @@ let sessionData = {
     members: new Set()
 };
 
+// Obiekt do przechowywania propozycji RP (id wiadomości -> lista chętnych)
+const rpProposals = new Map();
+
 // === REJESTRACJA KOMEND SLASH ===
 const commands = [
     new SlashCommandBuilder()
@@ -53,7 +56,7 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName('zapowiedz-sesji')
-        .setDescription('Wysyła zapowiedź nadchodzącej sesji RP')
+        .setDescription('Wysyła zapowiedź nadchodzącej oficjalnej sesji RP')
         .addStringOption(opt => opt.setName('godzina').setDescription('Godzina rozpoczęcia (np. 18:00)').setRequired(true))
         .addRoleOption(opt => opt.setName('ping').setDescription('Rola do oznaczenia').setRequired(false))
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
@@ -63,7 +66,13 @@ const commands = [
         .setDescription('Wysyła panel sterowania sesją z przyciskami (Start, Koniec, Przypomnij, Zaplanuj)')
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
-    // === KOMENDY ODGRYWANIA RP (me, do, try) ===
+    // KOMENDA: Szybka propozycja RP z przyciskami chętnych
+    new SlashCommandBuilder()
+        .setName('propozycja-rp')
+        .setDescription('Proponuje szybką akcję RP z przyciskami wyboru dla chętnych')
+        .addStringOption(opt => opt.setName('opis').setDescription('Co proponujesz zagrać?').setRequired(true)),
+
+    // KOMENDY ODGRYWANIA RP (me, do, try)
     new SlashCommandBuilder()
         .setName('me')
         .setDescription('Opisuje czynność wykonywaną przez Twoją postać')
@@ -204,33 +213,55 @@ client.on('interactionCreate', async (interaction) => {
                 .setTitle('📜 Lista Komend Bota')
                 .setColor('Blue')
                 .addFields(
-                    { name: '🎮 Zarządzanie Sesją RP', value: '`/zapowiedz-sesji` - Zapisy i zapowiedź sesji\n`/sesja` - Panel zarządzania (Start, Koniec, Przypomnij, Zaplanuj)' },
-                    { name: '🎭 Odgrywanie Naracji RP', value: '`/me` - Opis akcji postaci\n`/do` - Opis otoczenia/sytuacji\n`/try` - Proba z wynikiem 50/50 (Udane/Nieudane)\n`/szukam-rp` - Ogłoszenie poszukiwania graczy' },
-                    { name: '🎫 Ticket System', value: '`/ticket-panel` - Panel zgłoszeń z opcją Do Zarządu' },
-                    { name: '🛡️ Moderacja & Administracja', value: '`/ban` - Banowanie graczy\n`/warn` - Ostrzeżenia\n`/warny` - Lista ostrzeżeń\n`/blacklist` - Czarna lista\n`/panel-adm` - Panel zarządzania' },
+                    { name: '🎮 Zarządzanie Sesją RP', value: '`/zapowiedz-sesji` - Oficjalna zapowiedź sesji\n`/sesja` - Panel zarządzania (Start, Koniec, Przypomnij, Zaplanuj)' },
+                    { name: '🎭 Szybkie Akcje i Odgrywanie RP', value: '`/propozycja-rp` - Szybka propozycja RP z wyborem chętnych\n`/me` - Opis akcji postaci\n`/do` - Opis otoczenia\n`/try` - Wynik 50/50\n`/szukam-rp` - Ogłoszenie poszukiwania graczy' },
+                    { name: '🎫 Ticket System', value: '`/ticket-panel` - Panel zgłoszeń do administracji' },
+                    { name: '🛡️ Moderacja & Administracja', value: '`/ban` - Banowanie\n`/warn` - Ostrzeżenia\n`/warny` - Lista ostrzeżeń\n`/blacklist` - Czarna lista\n`/panel-adm` - Panel zarządzania' },
                     { name: '📢 Wezwania', value: '`/wezwanie-rzadowy` - Wezwanie na rządowy\n`/wezwanie-biuro` - Wezwanie do Biura Zarządu' },
                     { name: '📱 Social Media RP', value: '`/twitter` - Twitter\n`/darkweb` - Darkweb\n`/instagram` - Instagram' },
-                    { name: '🚨 Systemy Bezpieczeństwa', value: '`/alert-rcb` - Wysyła alert i zmienia kod na kanale' }
+                    { name: '🚨 Systemy Bezpieczeństwa', value: '`/alert-rcb` - Wysyła alert RCB' }
                 )
                 .setTimestamp();
 
             await interaction.reply({ embeds: [embed], ephemeral: true });
         }
 
-        // OBSŁUGA /ME, /DO, /TRY
+        // OBSŁUGA /PROPOZYCJA-RP
+        if (commandName === 'propozycja-rp') {
+            const desc = interaction.options.getString('opis');
+
+            const embed = new EmbedBuilder()
+                .setTitle('❓ PROPOZYCJA AKCJI RP')
+                .setDescription(`**Założyciel:** <@${interaction.user.id}>\n\n**Opis propozycji:**\n${desc}\n\n**Chętni (0):**\nBrak`)
+                .setColor('DarkVividPink')
+                .setFooter({ text: 'Kliknij przycisk poniżej, aby zadeklarować udział!' })
+                .setTimestamp();
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('prop_yes').setLabel('Będę').setStyle(ButtonStyle.Success).setEmoji('🟢'),
+                new ButtonBuilder().setCustomId('prop_no').setLabel('Nie będę').setStyle(ButtonStyle.Danger).setEmoji('🔴'),
+                new ButtonBuilder().setCustomId('prop_list').setLabel('Lista chętnych').setStyle(ButtonStyle.Secondary).setEmoji('📋')
+            );
+
+            const msg = await interaction.reply({ content: '@everyone Ktoś ma ochotę na RP?', embeds: [embed], components: [row], fetchReply: true });
+
+            rpProposals.set(msg.id, {
+                author: interaction.user.id,
+                desc: desc,
+                yes: new Set(),
+                no: new Set()
+            });
+        }
+
         if (commandName === 'me') {
             const action = interaction.options.getString('akcja');
-            const embed = new EmbedBuilder()
-                .setDescription(`*<@${interaction.user.id}> ${action}*`)
-                .setColor('#C2A2DA');
+            const embed = new EmbedBuilder().setDescription(`*<@${interaction.user.id}> ${action}*`).setColor('#C2A2DA');
             await interaction.reply({ embeds: [embed] });
         }
 
         if (commandName === 'do') {
             const desc = interaction.options.getString('opis');
-            const embed = new EmbedBuilder()
-                .setDescription(`**[DO]** ${desc} *((( <@${interaction.user.id}> )))*`)
-                .setColor('#FFB400');
+            const embed = new EmbedBuilder().setDescription(`**[DO]** ${desc} *((( <@${interaction.user.id}> )))*`).setColor('#FFB400');
             await interaction.reply({ embeds: [embed] });
         }
 
@@ -238,26 +269,14 @@ client.on('interactionCreate', async (interaction) => {
             const action = interaction.options.getString('czynnoscc');
             const success = Math.random() < 0.5;
             const resultText = success ? '🟢 **[UDANE]**' : '🔴 **[NIEUDANE]**';
-            const color = success ? 'Green' : 'Red';
-
-            const embed = new EmbedBuilder()
-                .setTitle(`🎲 Próba Akcji RP`)
-                .setDescription(`<@${interaction.user.id}> próbuje: *${action}*\n\nWynik: ${resultText}`)
-                .setColor(color);
+            const embed = new EmbedBuilder().setTitle(`🎲 Próba Akcji RP`).setDescription(`<@${interaction.user.id}> próbuje: *${action}*\n\nWynik: ${resultText}`).setColor(success ? 'Green' : 'Red');
             await interaction.reply({ embeds: [embed] });
         }
 
         if (commandName === 'szukam-rp') {
             const desc = interaction.options.getString('opis');
             const location = interaction.options.getString('miejsce') || 'Nieokreślone';
-
-            const embed = new EmbedBuilder()
-                .setTitle('🎭 OGŁOSZENIE RP - CHĘTNI DO GRY')
-                .setDescription(`**Szukający:** <@${interaction.user.id}>\n\n**Opis / Pomysł na RP:**\n${desc}\n\n**Miejsce:** ${location}`)
-                .setColor('Purple')
-                .setFooter({ text: 'Odpisz tej osobie na PW lub na kanale, jeśli chcesz zagrać!' })
-                .setTimestamp();
-
+            const embed = new EmbedBuilder().setTitle('🎭 OGŁOSZENIE RP - CHĘTNI DO GRY').setDescription(`**Szukający:** <@${interaction.user.id}>\n\n**Opis / Pomysł na RP:**\n${desc}\n\n**Miejsce:** ${location}`).setColor('Purple').setTimestamp();
             await interaction.reply({ content: '@everyone Szukamy chętnych do Roleplay!', embeds: [embed] });
         }
 
@@ -276,45 +295,29 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.reply({ content: `📣 **ZAPOWIEDŹ SESJI RP** ${pingText}`, ...sessionContent });
         }
 
-        // PANEL Z PRZYCISKAMI /SESJA
         if (commandName === 'sesja') {
-            const embed = new EmbedBuilder()
-                .setTitle('⚙️ Panel Zarządzania Sesją RP')
-                .setDescription('Wybierz akcję z poniższych przycisków, aby zmienić stan sesji RP:')
-                .setColor('Blurple');
-
+            const embed = new EmbedBuilder().setTitle('⚙️ Panel Zarządzania Sesją RP').setDescription('Wybierz akcję z poniższych przycisków:').setColor('Blurple');
             const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('btn_sesja_start').setLabel('Start').setStyle(ButtonStyle.Success).setEmoji('🟢'),
                 new ButtonBuilder().setCustomId('btn_sesja_koniec').setLabel('Koniec').setStyle(ButtonStyle.Danger).setEmoji('🔴'),
                 new ButtonBuilder().setCustomId('btn_sesja_przypomnij').setLabel('Przypomnij').setStyle(ButtonStyle.Primary).setEmoji('🔔'),
                 new ButtonBuilder().setCustomId('btn_sesja_zaplanuj').setLabel('Zaplanuj').setStyle(ButtonStyle.Secondary).setEmoji('📅')
             );
-
             await interaction.reply({ embeds: [embed], components: [row] });
         }
 
-        // PANEL TICKETÓW
         if (commandName === 'ticket-panel') {
-            const embed = new EmbedBuilder()
-                .setTitle('🏷️ Centrum Pomocy i Zgłoszeń')
-                .setDescription('Wybierz z poniższego menu temat sprawy, w której chcesz się skontaktować z administracją.')
-                .setColor('#2F3136');
-
-            const selectMenu = new StringSelectMenuBuilder()
-                .setCustomId('ticket_select')
-                .setPlaceholder('Wybierz opcję zgłoszenia...')
-                .addOptions([
-                    { label: 'Pytanie do administracji', value: 'pytanie_adm', emoji: '❓' },
-                    { label: 'Do Zarządu', value: 'do_zarzadu', emoji: '👑' },
-                    { label: 'Partnerstwo', value: 'partnerstwo', emoji: '🤝' },
-                    { label: 'Zgłoś gracza', value: 'zglos_gracza', emoji: '👤' },
-                    { label: 'Zgłoś administratora', value: 'zglos_adm', emoji: '🛡️' },
-                    { label: 'Zgłoś błąd', value: 'zglos_blad', emoji: '🐛' },
-                    { label: 'Podanie', value: 'podanie', emoji: '📝' },
-                ]);
-
-            const row = new ActionRowBuilder().addComponents(selectMenu);
-            await interaction.reply({ embeds: [embed], components: [row] });
+            const embed = new EmbedBuilder().setTitle('🏷️ Centrum Pomocy i Zgłoszeń').setDescription('Wybierz opcję z menu poniżej.').setColor('#2F3136');
+            const selectMenu = new StringSelectMenuBuilder().setCustomId('ticket_select').setPlaceholder('Wybierz opcję...').addOptions([
+                { label: 'Pytanie do administracji', value: 'pytanie_adm', emoji: '❓' },
+                { label: 'Do Zarządu', value: 'do_zarzadu', emoji: '👑' },
+                { label: 'Partnerstwo', value: 'partnerstwo', emoji: '🤝' },
+                { label: 'Zgłoś gracza', value: 'zglos_gracza', emoji: '👤' },
+                { label: 'Zgłoś administratora', value: 'zglos_adm', emoji: '🛡️' },
+                { label: 'Zgłoś błąd', value: 'zglos_blad', emoji: '🐛' },
+                { label: 'Podanie', value: 'podanie', emoji: '📝' },
+            ]);
+            await interaction.reply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(selectMenu)] });
         }
 
         if (commandName === 'ban') {
@@ -346,7 +349,6 @@ client.on('interactionCreate', async (interaction) => {
             const action = interaction.options.getString('akcja');
             const user = interaction.options.getUser('obywatel');
             const reason = interaction.options.getString('powod') || 'Brak powodu';
-
             let targetMap = type === 'adm' ? blacklistAdm : (type === 'bot' ? blacklistBot : blacklistUser);
 
             if (action === 'add') {
@@ -380,35 +382,20 @@ client.on('interactionCreate', async (interaction) => {
 
         if (commandName === 'twitter') {
             const text = interaction.options.getString('tresc');
-            const embed = new EmbedBuilder()
-                .setAuthor({ name: `${interaction.user.tag} (@${interaction.user.username})`, iconURL: interaction.user.displayAvatarURL() })
-                .setTitle('🐦 Twitter')
-                .setDescription(text)
-                .setColor('38A1F3')
-                .setTimestamp();
+            const embed = new EmbedBuilder().setAuthor({ name: `${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() }).setTitle('🐦 Twitter').setDescription(text).setColor('38A1F3').setTimestamp();
             await interaction.reply({ embeds: [embed] });
         }
 
         if (commandName === 'darkweb') {
             const text = interaction.options.getString('tresc');
-            const embed = new EmbedBuilder()
-                .setTitle('🕵️ Darkweb Message')
-                .setDescription(text)
-                .setFooter({ text: 'Autor: Anonim' })
-                .setColor('DarkButNotBlack')
-                .setTimestamp();
+            const embed = new EmbedBuilder().setTitle('🕵️ Darkweb Message').setDescription(text).setFooter({ text: 'Autor: Anonim' }).setColor('DarkButNotBlack').setTimestamp();
             await interaction.reply({ embeds: [embed] });
         }
 
         if (commandName === 'instagram') {
             const text = interaction.options.getString('tresc');
             const imageUrl = interaction.options.getString('image_url');
-            const embed = new EmbedBuilder()
-                .setAuthor({ name: interaction.user.tag, iconURL: interaction.user.displayAvatarURL() })
-                .setTitle('📸 Instagram')
-                .setDescription(text)
-                .setColor('E1306C')
-                .setTimestamp();
+            const embed = new EmbedBuilder().setAuthor({ name: interaction.user.tag, iconURL: interaction.user.displayAvatarURL() }).setTitle('📸 Instagram').setDescription(text).setColor('E1306C').setTimestamp();
             if (imageUrl) embed.setImage(imageUrl);
             await interaction.reply({ embeds: [embed] });
         }
@@ -416,25 +403,10 @@ client.on('interactionCreate', async (interaction) => {
         if (commandName === 'alert-rcb') {
             const code = interaction.options.getString('kod');
             const desc = interaction.options.getString('opis');
-
             const channel = interaction.guild.channels.cache.get(RCB_CHANNEL_ID);
-            let color = 'Green';
-            let codeName = '🟢 KOD ZIELONY';
-
-            if (code === 'zolty') { color = 'Yellow'; codeName = '🟡 KOD ŻÓŁTY'; }
-            if (code === 'czerwony') { color = 'Red'; codeName = '🔴 KOD CZERWONY'; }
-            if (code === 'czarny') { color = 'DarkGrey'; codeName = '🖤 KOD CZARNY'; }
-
-            if (channel) {
-                await channel.setName(`kod-alarmowy-${code}`).catch(err => console.error('Błąd zmiany nazwy:', err));
-            }
-
-            const embed = new EmbedBuilder()
-                .setTitle(`🚨 ALERT RCB - ${codeName}`)
-                .setDescription(`**Opis zagrożenia:**\n${desc}`)
-                .setColor(color)
-                .setTimestamp();
-
+            let color = code === 'zolty' ? 'Yellow' : (code === 'czerwony' ? 'Red' : (code === 'czarny' ? 'DarkGrey' : 'Green'));
+            if (channel) await channel.setName(`kod-alarmowy-${code}`).catch(err => console.error(err));
+            const embed = new EmbedBuilder().setTitle(`🚨 ALERT RCB`).setDescription(`**Opis zagrożenia:**\n${desc}`).setColor(color).setTimestamp();
             await interaction.reply({ content: '@everyone', embeds: [embed] });
         }
     }
@@ -443,35 +415,11 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isStringSelectMenu()) {
         if (interaction.customId === 'ticket_select') {
             const selected = interaction.values[0];
-            let pingRoles = [];
-            let typeName = '';
+            let pingRoles = selected === 'do_zarzadu' || selected === 'zglos_adm' ? [PING_ZARZAD] : [PING_ADM];
+            if (selected === 'zglos_blad') pingRoles.push(PING_TECH);
 
-            if (selected === 'pytanie_adm') {
-                pingRoles = [PING_ADM];
-                typeName = 'Pytanie do Administracji';
-            } else if (selected === 'do_zarzadu') {
-                pingRoles = [PING_ZARZAD];
-                typeName = 'Sprawa do Zarządu';
-            } else if (selected === 'partnerstwo') {
-                pingRoles = [PING_ADM];
-                typeName = 'Partnerstwo';
-            } else if (selected === 'zglos_gracza') {
-                pingRoles = [PING_ADM];
-                typeName = 'Zgłoszenie Gracza';
-            } else if (selected === 'zglos_adm') {
-                pingRoles = [PING_ZARZAD];
-                typeName = 'Zgłoszenie Administratora';
-            } else if (selected === 'zglos_blad') {
-                pingRoles = [PING_ZARZAD, PING_TECH];
-                typeName = 'Zgłoszenie Błędu';
-            } else if (selected === 'podanie') {
-                pingRoles = [PING_ADM];
-                typeName = 'Podanie';
-            }
-
-            const channelName = `ticket-${interaction.user.username}`;
             const ticketChannel = await interaction.guild.channels.create({
-                name: channelName,
+                name: `ticket-${interaction.user.username}`,
                 type: ChannelType.GuildText,
                 permissionOverwrites: [
                     { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
@@ -479,61 +427,67 @@ client.on('interactionCreate', async (interaction) => {
                 ]
             });
 
-            const pingsText = `${pingRoles.map(id => `<@&${id}>`).join(' ')} <@${interaction.user.id}>`;
+            const embed = new EmbedBuilder().setTitle(`🎫 Ticket: ${selected}`).setDescription(`Witaj <@${interaction.user.id}>! Opisz szczegółowo swoją sprawę.`).setColor('Green');
+            const closeBtn = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('close_ticket').setLabel('Zamknij Ticket').setStyle(ButtonStyle.Danger).setEmoji('🔒'));
 
-            const embed = new EmbedBuilder()
-                .setTitle(`🎫 Ticket: ${typeName}`)
-                .setDescription(`Witaj <@${interaction.user.id}>! Opisz szczegółowo swoją sprawę.\nZaraz pojawi się odpowiednia osoba.`)
-                .setColor('Green');
-
-            const closeBtn = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('close_ticket').setLabel('Zamknij Ticket').setStyle(ButtonStyle.Danger).setEmoji('🔒')
-            );
-
-            await ticketChannel.send({ content: pingsText, embeds: [embed], components: [closeBtn] });
-            await interaction.reply({ content: `✅ Twój ticket został utworzony: ${ticketChannel}`, ephemeral: true });
+            await ticketChannel.send({ content: `${pingRoles.map(id => `<@&${id}>`).join(' ')} <@${interaction.user.id}>`, embeds: [embed], components: [closeBtn] });
+            await interaction.reply({ content: `✅ Ticket utworzony: ${ticketChannel}`, ephemeral: true });
         }
     }
 
     // 3. OBSŁUGA PRZYCISKÓW
     if (interaction.isButton()) {
-        const { customId } = interaction;
+        const { customId, message } = interaction;
+
+        // Handling /propozycja-rp
+        if (customId === 'prop_yes' || customId === 'prop_no' || customId === 'prop_list') {
+            const proposal = rpProposals.get(message.id);
+            if (!proposal) {
+                return interaction.reply({ content: '❌ Ta propozycja RP wygasła lub została usunięta.', ephemeral: true });
+            }
+
+            if (customId === 'prop_yes') {
+                proposal.yes.add(interaction.user.id);
+                proposal.no.delete(interaction.user.id);
+            } else if (customId === 'prop_no') {
+                proposal.no.add(interaction.user.id);
+                proposal.yes.delete(interaction.user.id);
+            } else if (customId === 'prop_list') {
+                const yesList = proposal.yes.size > 0 ? Array.from(proposal.yes).map(id => `<@${id}>`).join(', ') : 'Brak';
+                const noList = proposal.no.size > 0 ? Array.from(proposal.no).map(id => `<@${id}>`).join(', ') : 'Brak';
+                return interaction.reply({
+                    content: `📋 **Lista Deklaracji RP:**\n🟢 **Będą (${proposal.yes.size}):** ${yesList}\n🔴 **Nie będą (${proposal.no.size}):** ${noList}`,
+                    ephemeral: true
+                });
+            }
+
+            // Aktualizacja embeda propozycji
+            const updatedEmbed = EmbedBuilder.from(message.embeds[0])
+                .setDescription(`**Założyciel:** <@${proposal.author}>\n\n**Opis propozycji:**\n${proposal.desc}\n\n**Chętni (${proposal.yes.size}):**\n${proposal.yes.size > 0 ? Array.from(proposal.yes).map(id => `<@${id}>`).join(', ') : 'Brak'}`);
+
+            await interaction.update({ embeds: [updatedEmbed] });
+        }
 
         // Przyciski panelu /sesja
         if (customId === 'btn_sesja_start') {
             sessionData.active = true;
-            const embed = new EmbedBuilder()
-                .setTitle('🚀 SESJA RP ZOSTAŁA URUCHOMIONA!')
-                .setDescription(`Prowadzący: <@${interaction.user.id}>\nMożna wchodzić na serwer!`)
-                .setColor('Green')
-                .setTimestamp();
+            const embed = new EmbedBuilder().setTitle('🚀 SESJA RP ZOSTAŁA URUCHOMIONA!').setDescription(`Prowadzący: <@${interaction.user.id}>\nMożna wchodzić na serwer!`).setColor('Green').setTimestamp();
             await interaction.reply({ content: '@everyone', embeds: [embed] });
         }
 
         if (customId === 'btn_sesja_koniec') {
             sessionData.active = false;
-            const embed = new EmbedBuilder()
-                .setTitle('🛑 SESJA RP ZOSTAŁA ZAKOŃCZONA!')
-                .setDescription('Dziękujemy wszystkim za udział w dzisiejszej sesji.')
-                .setColor('Red')
-                .setTimestamp();
+            const embed = new EmbedBuilder().setTitle('🛑 SESJA RP ZOSTAŁA ZAKOŃCZONA!').setDescription('Dziękujemy wszystkim za udział w dzisiejszej sesji.').setColor('Red').setTimestamp();
             await interaction.reply({ content: '@everyone', embeds: [embed] });
         }
 
         if (customId === 'btn_sesja_przypomnij') {
-            const embed = new EmbedBuilder()
-                .setTitle('🔔 PRZYPOMNIENIE O SESJI RP')
-                .setDescription(`Sesja RP zbliża się wielkimi krokami!\nSzykujcie się do wejścia na serwer.`)
-                .setColor('Yellow')
-                .setTimestamp();
+            const embed = new EmbedBuilder().setTitle('🔔 PRZYPOMNIENIE O SESJI RP').setDescription(`Sesja RP zbliża się wielkimi krokami!`).setColor('Yellow').setTimestamp();
             await interaction.reply({ content: '@everyone', embeds: [embed] });
         }
 
         if (customId === 'btn_sesja_zaplanuj') {
-            await interaction.reply({ 
-                content: '📌 Aby zaplanować nową sesję i zebrać zapisy graczy, użyj komendy: `/zapowiedz-sesji godzina: [np. 18:00]`', 
-                ephemeral: true 
-            });
+            await interaction.reply({ content: '📌 Aby zaplanować oficjalną sesję i zebrać zapisy graczy, użyj: `/zapowiedz-sesji godzina: [np. 18:00]`', ephemeral: true });
         }
 
         // Zapisy z /zapowiedz-sesji
