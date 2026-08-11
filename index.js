@@ -48,6 +48,46 @@ let sessionData = {
 // Obiekt do przechowywania propozycji RP (id wiadomości -> lista chętnych)
 const rpProposals = new Map();
 
+// Słownik z dokładnymi danymi dla poszczególnych kodów alarmowych
+const alarmCodesData = {
+    niebieski: {
+        title: '🔵 Kod Niebieski',
+        desc: 'Brak ataku terrorystycznego – tylko testy / ćwiczenia.',
+        color: 'Blue',
+        channelName: 'kod-niebieski'
+    },
+    zielony: {
+        title: '🟢 Kod Zielony',
+        desc: 'Brak ataku terrorystycznego. Nic się nie dzieje, miasto działa normalnie.',
+        color: 'Green',
+        channelName: 'kod-zielony'
+    },
+    pomaranczowy: {
+        title: '🟠 Kod Pomarańczowy',
+        desc: 'Podejrzenie ataku terrorystycznego. Wyższa gotowość służb mundurowych.',
+        color: 'Orange',
+        channelName: 'kod-pomaranczowy'
+    },
+    czerwony: {
+        title: '🔴 Kod Czerwony',
+        desc: 'Wysokie ryzyko ataku terrorystycznego. Najwyższa gotowość służb.',
+        color: 'Red',
+        channelName: 'kod-czerwony'
+    },
+    czarny: {
+        title: '⚫ Kod Czarny',
+        desc: 'Atak terrorystyczny, potwierdzony atak. Wojsko może pojawić się na drogach.',
+        color: 'DarkGrey',
+        channelName: 'kod-czarny'
+    },
+    bialy: {
+        title: '⚪ Kod Biały (Stan Wyjątkowy)',
+        desc: 'Wojna / atak terrorystyczny – służby nie radzą sobie. Zakaz zbiórek, każdy obywatel ma być w domu lub w bunkrze.',
+        color: 'White',
+        channelName: 'kod-bialy'
+    }
+};
+
 // === REJESTRACJA KOMEND SLASH ===
 const commands = [
     new SlashCommandBuilder()
@@ -171,14 +211,16 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName('alert-rcb')
-        .setDescription('Ogłasza alert RCB i zmienia kod alarmowy na kanale')
+        .setDescription('Ogłasza alert RCB i zmienia nazwę wskazanego kanału alarmowego')
         .addStringOption(opt => opt.setName('kod').setDescription('Wybierz kod alarmowy').setRequired(true).addChoices(
-            { name: '🟢 Kod Zielony (Bezpiecznie)', value: 'zielony' },
-            { name: '🟡 Kod Żółty (Zagrożenie)', value: 'zolty' },
-            { name: '🔴 Kod Czerwony (Wysokie Zagrożenie)', value: 'czerwony' },
-            { name: '🖤 Kod Czarny (Stan Wyjątkowy)', value: 'czarny' }
+            { name: '🔵 Kod Niebieski (Testy / Ćwiczenia)', value: 'niebieski' },
+            { name: '🟢 Kod Zielony (Bezpiecznie / Normalnie)', value: 'zielony' },
+            { name: '🟠 Kod Pomarańczowy (Podejrzenie Ataku)', value: 'pomaranczowy' },
+            { name: '🔴 Kod Czerwony (Wysokie Ryzyko)', value: 'czerwony' },
+            { name: '⚫ Kod Czarny (Potwierdzony Atak)', value: 'czarny' },
+            { name: '⚪ Kod Biały (Stan Wyjątkowy / Wojna)', value: 'bialy' }
         ))
-        .addStringOption(opt => opt.setName('opis').setDescription('Opis sytuacji / zagrożenia').setRequired(true))
+        .addStringOption(opt => opt.setName('dodatkowy_opis').setDescription('Dodatkowy opis sytuacji / instrukcje dla graczy').setRequired(false))
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 ];
 
@@ -400,13 +442,29 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.reply({ embeds: [embed] });
         }
 
+        // ZAKTUALIZOWANA KOMENDA /ALERT-RCB
         if (commandName === 'alert-rcb') {
-            const code = interaction.options.getString('kod');
-            const desc = interaction.options.getString('opis');
+            const codeKey = interaction.options.getString('kod');
+            const extraDesc = interaction.options.getString('dodatkowy_opis');
+            const codeInfo = alarmCodesData[codeKey];
+
             const channel = interaction.guild.channels.cache.get(RCB_CHANNEL_ID);
-            let color = code === 'zolty' ? 'Yellow' : (code === 'czerwony' ? 'Red' : (code === 'czarny' ? 'DarkGrey' : 'Green'));
-            if (channel) await channel.setName(`kod-alarmowy-${code}`).catch(err => console.error(err));
-            const embed = new EmbedBuilder().setTitle(`🚨 ALERT RCB`).setDescription(`**Opis zagrożenia:**\n${desc}`).setColor(color).setTimestamp();
+            if (channel) {
+                await channel.setName(codeInfo.channelName).catch(err => console.error(err));
+            }
+
+            let fullDescription = `**Zagrożenie:**\n${codeInfo.desc}`;
+            if (extraDesc) {
+                fullDescription += `\n\n**Dodatkowe informacje:**\n${extraDesc}`;
+            }
+
+            const embed = new EmbedBuilder()
+                .setTitle(`🚨 ALERT RCB - ${codeInfo.title}`)
+                .setDescription(fullDescription)
+                .setColor(codeInfo.color)
+                .setFooter({ text: 'Rządowe Centrum Bezpieczeństwa' })
+                .setTimestamp();
+
             await interaction.reply({ content: '@everyone', embeds: [embed] });
         }
     }
