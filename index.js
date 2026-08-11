@@ -9,9 +9,6 @@ const {
     ButtonBuilder, 
     ButtonStyle, 
     StringSelectMenuBuilder,
-    ModalBuilder, 
-    TextInputBuilder, 
-    TextInputStyle,
     ChannelType,
     REST, 
     Routes 
@@ -28,11 +25,6 @@ const client = new Client({
 });
 
 // === STAŁE ID KANAŁÓW I RÓL ===
-const LOGS_CHANNEL_ID = 'ID_KANALU_LOGOW';
-const JOIN_LEAVE_CHANNEL_ID = 'ID_KANALU_PRZYLOTY_ODLOTY';
-const ADM_TASKS_CHANNEL_ID = 'ID_KANALU_ZADAN_ADM';
-
-// ID Kanału Alert RCB (do zmiany nazwy/kodu)
 const RCB_CHANNEL_ID = '1510326956359422170';
 
 // ID Ról Pingu w Ticketach
@@ -55,12 +47,10 @@ let sessionData = {
 
 // === REJESTRACJA KOMEND SLASH ===
 const commands = [
-    // --- POMOC / KOMENDY ---
     new SlashCommandBuilder()
         .setName('komendy')
         .setDescription('Wyświetla pełną listę wszystkich dostępnych komend'),
 
-    // --- SESJA RP ---
     new SlashCommandBuilder()
         .setName('zapowiedz-sesji')
         .setDescription('Wysyła zapowiedź nadchodzącej sesji RP')
@@ -77,13 +67,11 @@ const commands = [
         ))
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
-    // --- TICKET SYSTEM ---
     new SlashCommandBuilder()
         .setName('ticket-panel')
         .setDescription('Wysyła panel otwierania zgłoszeń (Ticketów)')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-    // --- MODERACJA (BANY, WARNY, BLACKLISTY) ---
     new SlashCommandBuilder()
         .setName('ban')
         .setDescription('Zbanuj użytkownika')
@@ -119,7 +107,6 @@ const commands = [
         .addStringOption(opt => opt.setName('powod').setDescription('Powód (wymagane przy dodawaniu)').setRequired(false))
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-    // --- WEZWANIA I PANEL ADM ---
     new SlashCommandBuilder()
         .setName('wezwanie-rzadowy')
         .setDescription('Wysyła wezwanie na kanał rządowy')
@@ -139,7 +126,6 @@ const commands = [
         .setDescription('Otwiera panel zarządzania administracją')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-    // --- SOCIAL MEDIA ---
     new SlashCommandBuilder()
         .setName('twitter')
         .setDescription('Wysyła post na Twitterze')
@@ -156,7 +142,6 @@ const commands = [
         .addStringOption(opt => opt.setName('tresc').setDescription('Opis zdjęcia/posta').setRequired(true))
         .addStringOption(opt => opt.setName('image_url').setDescription('Link do zdjęcia (URL)').setRequired(false)),
 
-    // --- ALERT RCB / KODY ALARMOWE ---
     new SlashCommandBuilder()
         .setName('alert-rcb')
         .setDescription('Ogłasza alert RCB i zmienia kod alarmowy na kanale')
@@ -170,7 +155,6 @@ const commands = [
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 ];
 
-// POMOCNICZE FUNKCJE
 function buildSessionEmbedAndButtons() {
     const embed = new EmbedBuilder()
         .setTitle('🎮 SESJA ROLEPLAY')
@@ -192,13 +176,11 @@ function buildSessionEmbedAndButtons() {
     return { embeds: [embed], components: [row] };
 }
 
-// === OBSŁUGA INTERAKCJI ===
 client.on('interactionCreate', async (interaction) => {
     // 1. KOMENDY SLASH
     if (interaction.isChatInputCommand()) {
         const { commandName } = interaction;
 
-        // /komendy
         if (commandName === 'komendy') {
             const embed = new EmbedBuilder()
                 .setTitle('📜 Lista Komend Bota')
@@ -216,7 +198,6 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.reply({ embeds: [embed], ephemeral: true });
         }
 
-        // /zapowiedz-sesji & /sesja
         if (commandName === 'zapowiedz-sesji') {
             const time = interaction.options.getString('godzina');
             const role = interaction.options.getRole('ping');
@@ -245,7 +226,7 @@ client.on('interactionCreate', async (interaction) => {
             }
         }
 
-        // /ticket-panel
+        // PANEL TICKETÓW
         if (commandName === 'ticket-panel') {
             const embed = new EmbedBuilder()
                 .setTitle('🏷️ Centrum Pomocy i Zgłoszeń')
@@ -257,6 +238,7 @@ client.on('interactionCreate', async (interaction) => {
                 .setPlaceholder('Pytanie do administracji')
                 .addOptions([
                     { label: 'Pytanie do administracji', value: 'pytanie_adm', emoji: '❓' },
+                    { label: 'Do Zarządu', value: 'do_zarzadu', emoji: '👑' },
                     { label: 'Partnerstwo', value: 'partnerstwo', emoji: '🤝' },
                     { label: 'Zgłoś gracza', value: 'zglos_gracza', emoji: '👤' },
                     { label: 'Zgłoś administratora', value: 'zglos_adm', emoji: '🛡️' },
@@ -268,7 +250,6 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.reply({ embeds: [embed], components: [row] });
         }
 
-        // Moderacja (Ban, Warn, Warny, Blacklist)
         if (commandName === 'ban') {
             const user = interaction.options.getUser('obywatel');
             const reason = interaction.options.getString('powod') || 'Brak powodu';
@@ -310,7 +291,6 @@ client.on('interactionCreate', async (interaction) => {
             }
         }
 
-        // Wezwania
         if (commandName === 'wezwanie-rzadowy') {
             const target = interaction.options.getUser('obywatel');
             const reason = interaction.options.getString('powod');
@@ -331,7 +311,6 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
         }
 
-        // Social Media (Twitter, Darkweb, Instagram)
         if (commandName === 'twitter') {
             const text = interaction.options.getString('tresc');
             const embed = new EmbedBuilder()
@@ -367,7 +346,6 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.reply({ embeds: [embed] });
         }
 
-        // Alert RCB + Zmiana nazwy kanału
         if (commandName === 'alert-rcb') {
             const code = interaction.options.getString('kod');
             const desc = interaction.options.getString('opis');
@@ -401,10 +379,13 @@ client.on('interactionCreate', async (interaction) => {
             let pingRoles = [];
             let typeName = '';
 
-            // Wyznaczone pingi ról zgodnie z Twoimi wymaganiami
+            // Rozpoznawanie wybranej kategoria zgłoszenia
             if (selected === 'pytanie_adm') {
                 pingRoles = [PING_ADM];
                 typeName = 'Pytanie do Administracji';
+            } else if (selected === 'do_zarzadu') {
+                pingRoles = [PING_ZARZAD];
+                typeName = 'Sprawa do Zarządu';
             } else if (selected === 'partnerstwo') {
                 pingRoles = [PING_ADM];
                 typeName = 'Partnerstwo';
@@ -432,7 +413,7 @@ client.on('interactionCreate', async (interaction) => {
                 ]
             });
 
-            // Tworzenie treści pingu: Wyznaczone Role + Użytkownik który otworzył
+            // Formatowanie wiadomości pingu (Wyznaczone role + Osoba otwierająca)
             const pingsText = `${pingRoles.map(id => `<@&${id}>`).join(' ')} <@${interaction.user.id}>`;
 
             const embed = new EmbedBuilder()
@@ -477,7 +458,6 @@ client.on('interactionCreate', async (interaction) => {
     }
 });
 
-// === INICJALIZACJA I START BOTA ===
 client.once('ready', async () => {
     console.log(`🤖 Zalogowano jako ${client.user.tag}`);
 
@@ -496,7 +476,6 @@ client.once('ready', async () => {
 
 client.login(process.env.DISCORD_TOKEN);
 
-// SERWER HTTP DLA RENDER.COM
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.write("Bot dziala 24/7!");
