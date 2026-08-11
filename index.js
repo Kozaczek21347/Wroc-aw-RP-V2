@@ -8,13 +8,9 @@ const {
     ActionRowBuilder, 
     ButtonBuilder, 
     ButtonStyle, 
-    ModalBuilder, 
-    TextInputBuilder, 
-    TextInputStyle, 
     REST, 
     Routes 
 } = require('discord.js');
-const config = require('./config.json');
 
 const client = new Client({
     intents: [
@@ -26,7 +22,7 @@ const client = new Client({
     ]
 });
 
-// === USTAWIENIA ID KANAŁÓW (Uzupełnij swoimi ID) ===
+// === USTAWIENIA ID KANAŁÓW ===
 const LOGS_CHANNEL_ID = 'ID_KANALU_LOGOW';
 const JOIN_LEAVE_CHANNEL_ID = 'ID_KANALU_PRZYLOTY_ODLOTY';
 const ADM_TASKS_CHANNEL_ID = 'ID_KANALU_ZADAN_ADM';
@@ -92,9 +88,8 @@ client.on('guildMemberRemove', (member) => {
     channel.send({ embeds: [embed] });
 });
 
-// === REJESTRACJA KOMEND SLASH (STARE + NOWE) ===
+// === REJESTRACJA KOMEND SLASH ===
 const commands = [
-    // Stare komendy
     new SlashCommandBuilder().setName('embed').setDescription('Wysyła ogłoszenie w Embed'),
     new SlashCommandBuilder().setName('zgloszenie').setDescription('Otwiera formularz zgłoszenia'),
     new SlashCommandBuilder().setName('licencja').setDescription('Wysyła wniosek o licencję'),
@@ -113,7 +108,6 @@ const commands = [
         .addStringOption(opt => opt.setName('id').setDescription('ID użytkownika').setRequired(true))
         .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
 
-    // Nowe komendy
     new SlashCommandBuilder()
         .setName('panel-adm')
         .setDescription('Otwiera panel zarządzania administracją')
@@ -248,11 +242,11 @@ client.on('interactionCreate', async (interaction) => {
 client.once('ready', async () => {
     console.log(`🤖 Bot jest gotowy! Zalogowano jako ${client.user.tag}`);
 
-    const rest = new REST({ version: '10' }).setToken(config.token);
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
-        console.log('⏳ Rejestrowanie komend...');
+        console.log('⏳ Rejestrowanie komend (globalnie)...');
         await rest.put(
-            Routes.applicationGuildCommands(config.clientId, config.guildId),
+            Routes.applicationCommands(client.user.id),
             { body: commands }
         );
         console.log('✅ Wszystkie komendy pomyślnie zarejestrowane!');
@@ -261,12 +255,13 @@ client.once('ready', async () => {
     }
 });
 
-client.login(config.token);
+client.login(process.env.DISCORD_TOKEN);
 
 // === SERWER HTTP DLA RENDER.COM ===
+const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.write("Bot dziala 24/7!");
     res.end();
-}).listen(process.env.PORT || 3000);
-
-client.login(process.env.DISCORD_TOKEN);
+}).listen(PORT, () => {
+    console.log(`Nasłuchiwanie HTTP na porcie ${PORT}`);
+});
